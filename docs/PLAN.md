@@ -1,6 +1,7 @@
 # Arcology Generator: Project Plan
 
-**Status:** Phases 0 to 4 complete (2026-10-07); Phase 5 next.
+**Status:** Phases 0 to 4 complete (2026-10-07). Next: scale layers and contrast (Phase 4b, proposed in
+[`LAYERS.md`](LAYERS.md)), then Phase 5.
 
 Revision 2 (2026-10-07). Revises the original proposal after review. This plan is a starting point, not the full
 scope: the objective right now is to get it working, with "exciting retro-futurist arcologies" as a later pass.
@@ -386,6 +387,7 @@ validation, reading and writing the spec JSON. Build it only if the local Blende
 | 2 | Arcology composition | Cloud |
 | 3 | Facade grammar | Cloud |
 | 4 | Style and variation | Cloud (optional local add-on) |
+| 4b | Scale layers and contrast ([`LAYERS.md`](LAYERS.md)) | Cloud |
 | 5 | Representation levels | Cloud |
 | 6 | District assembled in Blender | Cloud |
 | 7 | Unreal integration | Local, when bandwidth allows |
@@ -471,6 +473,14 @@ rule), and asymmetric twins came out equal; each now changes the building. The f
 punched-window grid until the piers between windows gave way to glass. The envelope also caught real drift in the
 grammar: sister towers 12 m wide and 300 m tall (slenderness 25), now capped at the central tower's slenderness,
 which in turn needed pavilions held below the shortest sister. The optional local add-on is not built (Gate 2).
+
+### Phase 4b: Scale layers and contrast
+
+**Build:** an explicit tree of scale layers on every facade (band, panel, cell), with regions that stop subdividing
+early (fields, openings with spaces behind, recesses, giant orders), placed by composition; regions recorded in the
+plan as targets for later design language. Design and steps in [`LAYERS.md`](LAYERS.md).
+
+**Done when:** the buildings show events at several scales against a calm texture, and still read as Art Deco.
 
 ### Phase 5: Representation levels
 

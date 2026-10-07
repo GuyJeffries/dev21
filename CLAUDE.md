@@ -3,7 +3,8 @@
 Procedural Art Deco arcology generator. **Read `docs/PLAN.md` before starting work**: it sets the architecture,
 conventions and phases. Phases 0 (foundations), 1 (massing and first facade), 2 (arcology composition), 3
 (facade grammar: notched shapes, pilasters, zones, cornices, doors, ornament) and 4 (style and variation: every
-style setting wired, style envelope, sweep and batch sheets) are done; Phase 5 (representation levels) is next.
+style setting wired, style envelope, sweep and batch sheets) are done. Next is Phase 4b, scale layers and contrast,
+proposed in `docs/LAYERS.md` (read it too), then Phase 5 (representation levels).
 
 Development happens in Claude Code cloud sessions. The user reviews pull requests rather than running code, and has
 limited bandwidth: keep everything verifiable in the cloud and review evidence small (contact sheets, metric tables).
