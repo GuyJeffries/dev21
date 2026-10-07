@@ -5,19 +5,22 @@ one .glb. The manifest lists every placement; array elements stay as one row wit
 grid, which an assembler expands (Blender now, Unreal instanced meshes later). Instancing
 lives here because Blender's exporters don't preserve it (docs/PLAN.md, appendix A).
 
-Recipes are built from boxes, each with a material, so each mesh matches its element's
-extent exactly. Boxes may touch, but never share a face pointing the same way (which would
-flicker in a rasteriser such as Unreal's).
+Recipes are built from parts, each with a material: axis-aligned boxes, and prisms (a
+polygon in the element's x-z plane extruded along y) for diagonals such as chevrons. Each
+mesh matches its element's extent exactly. Parts may touch, but never share a face pointing
+the same way (which would flicker in a rasteriser such as Unreal's).
 """
 
 import json
 from collections.abc import Callable
 from pathlib import Path
+from typing import NamedTuple
 
 import bpy
 
+from arcology.facade import MULLION_DEPTH
 from arcology.plan import LODS, Plan, element_key
-from arcology.resolve import MULLION_DEPTH
+from arcology.rules import outline
 
 MANIFEST_SCHEMA = "arcology-manifest/0"
 
@@ -29,6 +32,18 @@ MATERIALS = {
 }
 
 type Box = tuple[tuple[float, float, float], tuple[float, float, float], str]
+
+
+class Prism(NamedTuple):
+    """A simple polygon in the x-z plane (either winding), extruded along y from y0 to y1."""
+
+    points: tuple[tuple[float, float], ...]
+    y0: float
+    y1: float
+    material: str
+
+
+type Part = Box | Prism
 
 # Box faces as vertex-index quads with outward normals: bottom, top, -Y, +X, +Y, -X.
 _FACES = [(0, 3, 2, 1), (4, 5, 6, 7), (0, 1, 5, 4), (1, 2, 6, 5), (2, 3, 7, 6), (3, 0, 4, 7)]
@@ -46,19 +61,42 @@ def _material(name: str) -> bpy.types.Material:
     return mat
 
 
-def mesh_from_boxes(name: str, boxes: list[Box]) -> bpy.types.Mesh:
-    """One mesh of axis-aligned boxes; degenerate boxes are skipped."""
+def _prism_geometry(prism: Prism, base: int):
+    """Vertices and faces with outward normals: front (-y), back (+y), then the sides."""
+    pts = list(prism.points)
+    area = sum(x0 * z1 - x1 * z0 for (x0, z0), (x1, z1) in zip(pts, pts[1:] + pts[:1], strict=True))
+    if area < 0:  # make it counter-clockwise seen from -y (x right, z up), so the front faces -y
+        pts.reverse()
+    n = len(pts)
+    verts = [(x, prism.y0, z) for x, z in pts] + [(x, prism.y1, z) for x, z in pts]
+    faces = [tuple(base + i for i in range(n)), tuple(base + n + i for i in reversed(range(n)))]
+    faces += [
+        (base + i, base + n + i, base + n + (i + 1) % n, base + (i + 1) % n) for i in range(n)
+    ]
+    return verts, faces
+
+
+def mesh_from_parts(name: str, parts: list[Part]) -> bpy.types.Mesh:
+    """One mesh of boxes and prisms; degenerate parts are skipped."""
     verts, faces, slots, face_slots = [], [], [], []
-    for (x0, y0, z0), (x1, y1, z1), material in boxes:
-        if min(x1 - x0, y1 - y0, z1 - z0) <= 1e-6:
-            continue
+    for part in parts:
+        if isinstance(part, Prism):
+            if part.y1 - part.y0 <= 1e-6:
+                continue
+            new_verts, new_faces = _prism_geometry(part, len(verts))
+            material = part.material
+        else:
+            (x0, y0, z0), (x1, y1, z1), material = part
+            if min(x1 - x0, y1 - y0, z1 - z0) <= 1e-6:
+                continue
+            new_verts = [(x0, y0, z0), (x1, y0, z0), (x1, y1, z0), (x0, y1, z0)]
+            new_verts += [(x0, y0, z1), (x1, y0, z1), (x1, y1, z1), (x0, y1, z1)]
+            new_faces = [tuple(len(verts) + i for i in f) for f in _FACES]
         if material not in slots:
             slots.append(material)
-        base = len(verts)
-        verts += [(x0, y0, z0), (x1, y0, z0), (x1, y1, z0), (x0, y1, z0)]
-        verts += [(x0, y0, z1), (x1, y0, z1), (x1, y1, z1), (x0, y1, z1)]
-        faces += [tuple(base + i for i in f) for f in _FACES]
-        face_slots += [slots.index(material)] * 6
+        verts += new_verts
+        faces += new_faces
+        face_slots += [slots.index(material)] * len(new_faces)
     me = bpy.data.meshes.new(name)
     me.from_pydata(verts, [], faces)
     for material in slots:
@@ -68,14 +106,52 @@ def mesh_from_boxes(name: str, boxes: list[Box]) -> bpy.types.Mesh:
     return me
 
 
+mesh_from_boxes = mesh_from_parts  # boxes are parts too
+
+
 def _mass_box(p: dict) -> list[Box]:
     w, d = p["width"] / 2, p["depth"] / 2
     return [((-w, -d, 0), (w, d, p["height"]), "stone")]
 
 
+def _mass_notched(p: dict) -> list[Box]:
+    """A box with a square notch cut from every corner: a cross of three boxes."""
+    w, d, c, h = p["width"] / 2, p["depth"] / 2, p["notch"], p["height"]
+    return [
+        ((-w + c, -d, 0), (w - c, d, h), "stone"),
+        ((w - c, -d + c, 0), (w, d - c, h), "stone"),
+        ((-w, -d + c, 0), (-w + c, d - c, h), "stone"),
+    ]
+
+
+def _pier_inner(p: dict) -> list[Box]:
+    """Re-entrant corner: the two facades' end half-piers and the square between them.
+    Local x runs along the incoming edge to the corner, local y inward from it."""
+    arm, dd, h = p["arm"], p["depth"], p["height"]
+    return [
+        ((-arm, 0, 0), (0, dd, h), "stone"),
+        ((0, -arm, 0), (dd, 0, h), "stone"),
+        ((0, 0, 0), (dd, dd, h), "stone"),
+    ]
+
+
 def _pier_strip(p: dict) -> list[Box]:
+    """A pier on a bay line; minor piers stand back from the envelope by `front`."""
     w = p["width"] / 2
-    return [((-w, 0, 0), (w, p["depth"], p["height"]), "stone")]
+    return [((-w, p.get("front", 0.0), 0), (w, p["depth"], p["height"]), "stone")]
+
+
+def _pier_fluted(p: dict) -> list[Box]:
+    """A pilaster faced with reeds: flutes + 1 ribs standing `reed` proud of its face, with
+    a flute between each pair."""
+    w, dd, h, reed = p["width"] / 2, p["depth"], p["height"], p["reed"]
+    ribs = p["flutes"] + 1
+    u = 2 * w / (2 * ribs - 1)
+    boxes = [((-w, reed, 0), (w, dd, h), "stone")]
+    boxes += [
+        ((-w + 2 * i * u, 0, 0), (-w + (2 * i + 1) * u, reed, h), "stone") for i in range(ribs)
+    ]
+    return boxes
 
 
 def _pier_corner(p: dict) -> list[Box]:
@@ -108,56 +184,148 @@ def _window_deco_tall(p: dict) -> list[Box]:
     return boxes
 
 
+def _window_deco_capital(p: dict) -> list[Part]:
+    """A capital window: a stone panel below shorter glass, a stone head with corbels at
+    its corners, and nested bronze chevrons standing on the panel."""
+    cw, h, sill, head, c = p["width"] / 2, p["height"], p["sill"], p["head"], p["corbel"]
+    panel, back, glass, bar = (
+        p["front"] + p["recess"] / 2,
+        p["front"] + p["recess"],
+        p["glass"],
+        MULLION_DEPTH,
+    )
+    top = h - head
+    parts: list[Part] = [
+        ((-cw, panel, 0), (cw, back + glass, sill), "stone"),
+        ((-cw, panel, top), (cw, back + glass, h), "stone"),
+        ((-cw, back, sill), (cw, back + glass, top), "glass"),
+        ((-cw, panel, top - c), (-cw + c, back, top), "stone"),
+        ((cw - c, panel, top - c), (cw, back, top), "stone"),
+        ((-cw, back - bar, sill), (cw, back, sill + 0.08), "metal"),
+    ]
+    for i in range(1, p["mullions"] + 1):
+        x = -cw + 2 * cw * i / (p["mullions"] + 1)
+        parts.append(((x - 0.04, back - bar, sill + 0.08), (x + 0.04, back, top), "metal"))
+    if p.get("chevrons"):
+        t, rise, xw = p["band"], p["rise"], 0.8 * cw
+        for k in range(p["chevrons"]):
+            z = 0.2 * sill + k * 1.6 * t
+            points = (
+                (-xw, z),
+                (0, z + rise),
+                (xw, z),
+                (xw, z + t),
+                (0, z + rise + t),
+                (-xw, z + t),
+            )
+            parts.append(Prism(points, panel - p["relief"], panel, "metal"))
+    return parts
+
+
+def _window_deco_base(p: dict) -> list[Box]:
+    """A base window: a narrower opening between stone jambs, over a low sill and under a
+    stone head, so the ground floors read as masonry."""
+    cw, h, sill, head, j = p["width"] / 2, p["height"], p["sill"], p["head"], p["jamb"]
+    panel, back, glass, bar = (
+        p["front"] + p["recess"] / 2,
+        p["front"] + p["recess"],
+        p["glass"],
+        MULLION_DEPTH,
+    )
+    top, ow = h - head, cw - j
+    boxes = [
+        ((-cw, panel, 0), (cw, back + glass, sill), "stone"),
+        ((-cw, panel, top), (cw, back + glass, h), "stone"),
+        ((-cw, panel, sill), (-ow, back + glass, top), "stone"),
+        ((ow, panel, sill), (cw, back + glass, top), "stone"),
+        ((-ow, back, sill), (ow, back + glass, top), "glass"),
+    ]
+    for i in range(1, p["mullions"] + 1):
+        x = -ow + 2 * ow * i / (p["mullions"] + 1)
+        boxes.append(((x - 0.04, back - bar, sill), (x + 0.04, back, top), "metal"))
+    return boxes
+
+
+def _window_channel(p: dict) -> list[Box]:
+    """A bay column of a window block at L2: one box, glass up a shaft, stone elsewhere."""
+    w = p["width"] / 2
+    return [((-w, p["front"], 0), (w, p["depth"], p["height"]), p["material"])]
+
+
+def _merlon_stepped(p: dict) -> list[Box]:
+    """A pylon from the roof through the parapet, stepping in `steps` times above it."""
+    w, d, base, n, rise = p["width"] / 2, p["depth"], p["base"], p["steps"], p["rise"]
+    boxes = [((-w, -p["proud"], 0), (w, d, base + rise), "stone")]
+    boxes += [
+        (
+            (-w * (1 - i / n), -p["proud"], base + i * rise),
+            (w * (1 - i / n), d, base + (i + 1) * rise),
+            "stone",
+        )
+        for i in range(1, n)
+    ]
+    return boxes
+
+
 def _entrance_deco_main(p: dict) -> list[Box]:
     """Stepped surround, glazed doors, canopy, plinth and a stepped crest above."""
     k, sp, sw = p["frames"], p["frame_step"], p["frame_width"]
     hw0, h, dd = p["width"] / 2, p["height"], p["depth"]
     proj, plinth_top, glass = k * sp, 0.3, 0.05
     boxes = []
-    for j in range(k):
+    for j in range(k):  # jambs stand on the plinth in front of the envelope, on the floor behind
         outer, inner = hw0 - j * sw, hw0 - (j + 1) * sw
         top, inner_top, front = h - j * sw, h - (j + 1) * sw, -(k - j) * sp
-        boxes += [
-            ((-outer, front, 0), (-inner, dd, top), "stone"),
-            ((inner, front, 0), (outer, dd, top), "stone"),
-            ((-inner, front, inner_top), (inner, dd, top), "stone"),
-        ]
+        for x0, x1 in ((-outer, -inner), (inner, outer)):
+            boxes += [
+                ((x0, front, plinth_top), (x1, 0, top), "stone"),
+                ((x0, 0, 0), (x1, dd, top), "stone"),
+            ]
+        boxes.append(((-inner, front, inner_top), (inner, dd, top), "stone"))
     hwk, topk = hw0 - k * sw, h - k * sw
     door = p["door_height"]
     boxes += [
         ((-hw0 - p["apron"], -(proj + p["plinth"]), 0), (hw0 + p["apron"], 0, plinth_top), "stone"),
         ((-hwk, 0, 0), (hwk, dd - glass, plinth_top), "stone"),
         ((-hwk, dd - glass, plinth_top), (hwk, dd, topk), "glass"),
-        ((-hwk - 0.4, -(proj + 1.5), door), (hwk + 0.4, dd - glass, door + 0.35), "metal"),
+        (
+            (-hwk - 0.4, -(proj + p["canopy"]), door),
+            (hwk + 0.4, dd - glass - 0.12, door + 0.35),
+            "metal",
+        ),
     ]
     for i in range(1, p["mullions"] + 1):
         x = -hwk + 2 * hwk * i / (p["mullions"] + 1)
         boxes.append(
             ((x - 0.06, dd - glass - 0.12, plinth_top), (x + 0.06, dd - glass, topk), "metal")
         )
-    for i, share in enumerate((0.5, 0.32, 0.14)):
+    for i, share in enumerate((0.5, 0.32, 0.14)):  # each step a third shallower
         z = h + i * p["crest"] / 3
         boxes.append(
-            ((-hw0 * share, -(proj - i * sp), z), (hw0 * share, 0, z + p["crest"] / 3), "stone")
+            ((-hw0 * share, -proj * (3 - i) / 3, z), (hw0 * share, 0, z + p["crest"] / 3), "stone")
         )
     return boxes
 
 
 def _ring(p: dict) -> list[Box]:
-    """A rectangular ring between an outer and an inner footprint (band course, parapet)."""
-    W, D, w, d, h = (
-        p["width"] / 2,
-        p["depth"] / 2,
-        p["inner_width"] / 2,
-        p["inner_depth"] / 2,
-        p["height"],
-    )
-    return [
-        ((-W, -D, 0), (W, -d, h), "stone"),
-        ((-W, d, 0), (W, D, h), "stone"),
-        ((w, -d, 0), (W, d, h), "stone"),
-        ((-W, -d, 0), (-w, d, h), "stone"),
-    ]
+    """Rings along an outline, each [reach, z0, z1]: positive reach stands outward from
+    the envelope (bands, cornices), negative reach runs inward from it (parapets). Each
+    edge's strip is trimmed or extended at its end so strips meet without overlapping."""
+    boxes = []
+    for reach, z0, z1 in p["rings"]:
+        r = abs(reach)
+        across = (0.0, reach) if reach > 0 else (reach, 0.0)
+        for e in outline(p["width"], p["depth"], p.get("notch", 0.0)):
+            (ax, ay), (ux, uy), (nx, ny) = e.a, e.direction, e.normal
+            grow = r if e.end_convex == (reach > 0) else -r
+            pts = [
+                (ax + ux * s + nx * q, ay + uy * s + ny * q)
+                for s in (0.0, e.length + grow)
+                for q in across
+            ]
+            xs, ys = [pt[0] for pt in pts], [pt[1] for pt in pts]
+            boxes.append(((min(xs), min(ys), z0), (max(xs), max(ys), z1), "stone"))
+    return boxes
 
 
 def _crown_stepped(p: dict) -> list[Box]:
@@ -199,22 +367,30 @@ def _bridge_gallery(p: dict) -> list[Box]:
     return boxes
 
 
-# recipe name -> boxes(params), in the element's frame (see plan.py)
-RECIPES: dict[str, Callable[[dict], list[Box]]] = {
+# recipe name -> parts(params), in the element's frame (see plan.py)
+RECIPES: dict[str, Callable[[dict], list[Part]]] = {
     "mass.box": _mass_box,
+    "mass.notched": _mass_notched,
+    "pier.inner": _pier_inner,
     "pier.strip": _pier_strip,
+    "pier.fluted": _pier_fluted,
     "pier.corner": _pier_corner,
     "window.deco_tall": _window_deco_tall,
+    "window.deco_capital": _window_deco_capital,
+    "window.deco_base": _window_deco_base,
+    "window.channel": _window_channel,
     "entrance.deco_main": _entrance_deco_main,
     "crown.stepped": _crown_stepped,
     "bridge.gallery": _bridge_gallery,
     "band.ring": _ring,
     "parapet.ring": _ring,
+    "cornice.ring": _ring,
+    "merlon.stepped": _merlon_stepped,
 }
 
 
 def build_mesh(recipe: str, params: dict, name: str) -> bpy.types.Mesh:
-    return mesh_from_boxes(name, RECIPES[recipe](params))
+    return mesh_from_parts(name, RECIPES[recipe](params))
 
 
 def _export(me: bpy.types.Mesh, path: Path) -> None:

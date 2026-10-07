@@ -16,7 +16,7 @@ def test_shared_camera_encloses_every_plan(spec):
         assert all(camera["lo"][i] <= lo[i] and hi[i] <= camera["hi"][i] for i in range(3))
 
 
-def test_detail_cameras_frame_the_entrance_and_crown(plan):
+def test_detail_cameras_frame_the_entrance_setback_and_crown(plan):
     cameras = detail_cameras(plan)
     for name, kind in (("entrance", "entrance"), ("crown", "crown")):
         target = next(
@@ -28,6 +28,10 @@ def test_detail_cameras_frame_the_entrance_and_crown(plan):
         assert all(
             cameras[name]["lo"][i] <= lo[i] and hi[i] <= cameras[name]["hi"][i] for i in range(3)
         ), name
+    # The setback view looks at the top of the base section, where its cornice runs.
+    cornice = plan.element("arcology/tower.central/section.0/cornice")
+    lo, hi = element_bounds(cornice)
+    assert cameras["setback"]["lo"][2] < hi[2] < cameras["setback"]["hi"][2]
 
 
 def test_contact_camera_includes_the_spire(spec):
@@ -52,9 +56,9 @@ def test_contact_sheet_renders_tiles_and_metrics(spec, tmp_path):
     assert [line.split("|")[1].strip() for line in table[4:]] == ["4", "5"]
 
 
-def test_detail_sheet_renders_three_close_ups_per_seed(spec, tmp_path):
+def test_detail_sheet_renders_four_close_ups_per_seed(spec, tmp_path):
     detail_sheet(spec, [6], tmp_path, tile=(96, 64), samples=1)
-    assert Image.open(tmp_path / "detail_sheet.jpg").size == (288, 64 + 34)
-    for name in ("entrance", "cluster", "crown"):
+    assert Image.open(tmp_path / "detail_sheet.jpg").size == (384, 64 + 34)
+    for name in ("entrance", "cluster", "setback", "crown"):
         tile = Image.open(tmp_path / f"seed-6/{name}.png").convert("L")
         assert ImageStat.Stat(tile).stddev[0] > 5, name

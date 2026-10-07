@@ -45,9 +45,17 @@ def _shift_bridge(dz):
 
 
 def _shift_window_block():
-    block = PLAN.element("arcology/tower.east.mid/section.0/facade.east/windows")
+    block = PLAN.element(f"{EAST}/facade.east/windows.shaft.left")
     x, y, z = block.translation
     return _alter(block.id, translation=(x + 3.0, y, z))
+
+
+def _bridge_into_cornice():
+    """The east bridge raised until its roof meets the top of the lower base section."""
+    bridge = PLAN.element("arcology/bridge.east.mid")
+    tops = [_z(m) + PLAN.element(m).params["height"] for m in (f"{CENTRAL}/section.0", EAST)]
+    x, y, _ = bridge.translation
+    return _alter(bridge.id, translation=(x, y, min(tops) - bridge.params["height"]))
 
 
 def _drop(element_id):
@@ -76,26 +84,33 @@ def test_resolved_plan_passes_every_check():
         # Moving the top section also leaves its crown and its facade behind.
         (
             lambda: _alter(TOP, translation=(0.0, 0.0, _z(TOP) + 1)),
-            {"floor_aligned", "stacked", "crowned", "dressed"},
+            {"floor_aligned", "stacked", "crowned", "dressed", "corniced"},
         ),
         (
             lambda: _alter(TOP, translation=(0.0, 0.0, _z(TOP) + 4)),
-            {"stacked", "crowned", "dressed"},
+            {"stacked", "crowned", "dressed", "corniced"},
         ),
-        (lambda: _widen(TOP, PLAN.element(TOP).params["width"] + 1), {"bay_aligned"}),
+        (
+            lambda: _widen(TOP, PLAN.element(TOP).params["width"] + 1),
+            {"bay_aligned", "corniced"},
+        ),
         (
             lambda: _widen(TOP, 600.0),
-            {"setbacks_monotonic", "contained", "facade_complete"},
+            {"setbacks_monotonic", "contained", "facade_complete", "corniced"},
         ),
         (
             lambda: _alter(TOP, translation=(30.0, 0.0, _z(TOP))),
-            {"contained", "symmetric", "crowned", "dressed"},
+            {"contained", "symmetric", "crowned", "dressed", "corniced"},
         ),
-        (lambda: _drop(f"{SOUTH}/windows.above"), {"facade_complete"}),
-        (lambda: _duplicate(f"{SOUTH}/windows.left"), {"facade_complete", "symmetric"}),
+        (lambda: _drop(f"{SOUTH}/windows.shaft.above"), {"facade_complete"}),
+        (lambda: _duplicate(f"{SOUTH}/windows.base.left"), {"facade_complete", "symmetric"}),
+        (lambda: _drop(f"{SOUTH}/piers.0"), {"symmetric"}),
+        (lambda: _drop(f"{TOP}/cornice"), {"corniced"}),
+        (lambda: _duplicate(f"{EAST}/cornice"), {"corniced", "symmetric"}),
+        # A sister tower carrying more chevrons than the central tower.
         (
-            lambda: _drop(f"{SOUTH}/piers.left"),
-            {"symmetric"},
+            lambda: _alter(f"{EAST}/facade.east/windows.capital.left", params={"chevrons": 3}),
+            {"ornament_hierarchy", "symmetric"},
         ),
         (lambda: _drop(f"{SOUTH}/entrance"), {"entrance", "facade_complete"}),
         (
@@ -118,11 +133,16 @@ def test_resolved_plan_passes_every_check():
                 "facade_complete",
                 "stacked",
                 "symmetric",
+                "corniced",
             },
         ),
-        (lambda: _taller(EAST, 500.0), {"dominant", "facade_complete", "stacked", "symmetric"}),
+        (
+            lambda: _taller(EAST, 500.0),
+            {"dominant", "facade_complete", "stacked", "symmetric", "corniced"},
+        ),
         (lambda: _shift_bridge(1.0), {"connected", "floor_aligned", "symmetric"}),
         (lambda: _shift_window_block(), {"dressed", "symmetric"}),
+        (lambda: _bridge_into_cornice(), {"clear", "symmetric"}),
     ],
 )
 def test_each_check_catches_its_fault(broken, expected):

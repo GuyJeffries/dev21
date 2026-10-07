@@ -16,7 +16,7 @@ def _windows(plan):
 
 
 def test_array_copies_have_grid_ids_floors_and_tags():
-    block = PLAN.element(f"{SOUTH}/windows.left")
+    block = PLAN.element(f"{SOUTH}/windows.base.left")
     copies = list(instances(PLAN, block))
     assert len(copies) == block.count
     first, last = copies[0], copies[-1]
@@ -46,8 +46,41 @@ def test_window_identity_survives_a_different_entrance():
         assert (narrow[wid].seed, narrow[wid].translation) == (w.seed, w.translation), wid
 
 
+def test_window_identity_survives_a_different_rhythm_and_zones():
+    # Pilasters and ornament re-split facades into other blocks and zones (capital floors
+    # follow ornament density); every window keeps its id, seed and position.
+    before = _windows(PLAN)
+    after = _windows(
+        resolve(
+            replace(
+                SPEC,
+                facade=replace(SPEC.facade, pilaster_every=5),
+                style=replace(SPEC.style, ornament_density=1.0),
+            )
+        )
+    )
+    assert after.keys() == before.keys()
+    for wid, w in after.items():
+        assert (before[wid].seed, before[wid].translation) == (w.seed, w.translation), wid
+    assert {w.recipe for w in after.values()} == {w.recipe for w in before.values()}
+    assert sum(w.recipe == "window.deco_capital" for w in after.values()) > sum(
+        w.recipe == "window.deco_capital" for w in before.values()
+    )
+
+
+def test_strided_arrays_name_copies_by_bay_line():
+    block = next(e for e in PLAN.elements if e.id.endswith("/pilasters.0") and e.count > 2)
+    axis = block.array["axes"][0]
+    copies = list(instances(PLAN, block))
+    lines = [axis["start"] + i * axis["stride"] for i in range(axis["count"])]
+    assert [c.id for c in copies] == [f"{block.array['prefix']}/pier.{n:03d}" for n in lines]
+    assert [c.tags["pier"] for c in copies] == lines
+    step = sum(v * v for v in axis["step"]) ** 0.5
+    assert step == axis["stride"] * PLAN.bay_width
+
+
 def test_array_bounds_cover_every_copy():
-    block = PLAN.element(f"{SOUTH}/windows.left")
+    block = PLAN.element(f"{SOUTH}/windows.shaft.left")
     lo, hi = element_bounds(block)
     for copy in instances(PLAN, block):
         clo, chi = element_bounds(copy)

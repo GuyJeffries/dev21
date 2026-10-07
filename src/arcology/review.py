@@ -2,8 +2,8 @@
 
 Contact sheet: many seeds at L2, one camera fitted to the box enclosing every building
 (spires included), so relative size reads correctly across seeds. Detail sheet: close-ups
-at L0 of the entrance, a bridge and the central crown for a few seeds, where windows and
-joints are big enough to judge.
+at L0 of the entrance, a bridge, the central tower's first setback and its crown for a few
+seeds, where windows, joints and ornament are big enough to judge.
 
 Every tile is rendered from the handover package (library + manifest) through the stand-in
 assembler, so the sheets also exercise that path. Output is compressed JPEG sized for limited
@@ -22,8 +22,9 @@ from PIL import Image, ImageDraw, ImageFont
 from arcology.assemble import assemble
 from arcology.build import build_library
 from arcology.metrics import failures, measure
-from arcology.plan import Plan, element_bounds, plan_bounds
+from arcology.plan import Plan, element_bounds, instances, plan_bounds
 from arcology.resolve import resolve
+from arcology.rules import CENTRAL
 from arcology.spec import Spec
 
 # Fixed seeds rendered on every pull request, so before/after sheets are comparable.
@@ -56,7 +57,8 @@ def shared_camera(plans: list[Plan]) -> dict:
 
 def detail_cameras(plan: Plan) -> dict[str, dict]:
     """Close-up framings: the main entrance; the sister-tower cluster at its transfer floor
-    (else a pavilion bridge, else the tower's base corner); the central tower's crown."""
+    (else a pavilion bridge, else the tower's base corner); the central tower's first setback
+    (capital, cornice, merlons), if it has one; its crown."""
     bay, fh = plan.bay_width, plan.floor_height
     ground = (plan_bounds(plan)[1][0] - plan_bounds(plan)[0][0]) * 8
     entrance = next(e for e in plan.elements if e.kind == "entrance")
@@ -94,9 +96,16 @@ def detail_cameras(plan: Plan) -> dict[str, dict]:
             "hi": (tx1, ty0 + 4 * bay, tz0 + 8 * fh),
             "view": (-1.0, 1.0, -0.25),
         }
-    crown = next(
-        e for e in plan.elements if e.kind == "crown" and e.tags["tower"].endswith("central")
-    )
+    sections = [e for e in plan.elements if e.kind == "mass" and e.tags.get("tower") == CENTRAL]
+    if len(sections) > 1:
+        # The south-east corner where the base section steps back to the next.
+        (_, sy0, _), (sx1, _, sz1) = element_bounds(sections[0])
+        views["setback"] = {
+            "lo": (sx1 - 6 * bay, sy0, sz1 - 5 * fh),
+            "hi": (sx1, sy0 + 6 * bay, sz1 + 3 * fh),
+            "view": (-1.0, 1.0, -0.3),
+        }
+    crown = next(e for e in plan.elements if e.kind == "crown" and e.tags["tower"] == CENTRAL)
     (cx0, cy0, cz0), (cx1, cy1, cz1) = element_bounds(crown)
     views["crown"] = {
         "lo": (cx0, cy0, cz0 - 4 * fh),
@@ -195,19 +204,23 @@ def metrics_markdown(results: list[dict], lod: str) -> str:
         f"### Contact sheet: {len(results)} seeds, {lod}",
         "",
         "| seed | height / tip (m) | floors | podium | tower | towers | dominance | footprint (m) "
-        "| tower base (m) | windows | L0 meshes / copies | checks |",
-        "|---:|---:|---:|---:|---:|---:|---:|---|---|---:|---:|---|",
+        "| tower base (m) | windows | ornament c / s / p / pod | L0 meshes / copies | checks |",
+        "|---:|---:|---:|---:|---:|---:|---:|---|---|---:|---|---:|---|",
     ]
     for r in results:
         failed = failures(r)
         l0 = r["lod"]["L0"]
         dominance = f"{r['dominance']:.2f}" if r["dominance"] else "–"
+        orn = " / ".join(
+            f"{r['ornament'][s]:.2f}" if s in r["ornament"] else "–"
+            for s in ("central", "sister", "pavilion", "podium")
+        )
         lines.append(
             f"| {r['seed']} | {r['height_m']:.0f} / {r['tip_m']:.0f} | {r['floors']} "
             f"| {r['podium_floors']} | {r['tower_floors']} | {r['towers']} | {dominance} "
             f"| {r['footprint_m'][0]:g} × {r['footprint_m'][1]:g} "
             f"| {r['tower_base_m'][0]:g} × {r['tower_base_m'][1]:g} "
-            f"| {r['windows']:,} | {l0['unique']} / {l0['instances']:,} "
+            f"| {r['windows']:,} | {orn} | {l0['unique']} / {l0['instances']:,} "
             f"| {'FAIL: ' + ', '.join(failed) if failed else 'ok'} |"
         )
     return "\n".join(lines) + "\n"
@@ -252,7 +265,7 @@ def detail_sheet(
     tile: tuple[int, int] = (400, 300),
     samples: int = 24,
 ) -> None:
-    """Close-ups at L0 (entrance, cluster or bridge, crown): one row per seed."""
+    """Close-ups at L0 (entrance, cluster or bridge, setback, crown): one row per seed."""
     out_dir = Path(out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
     labels, tiles, columns = [], [], 0
@@ -263,8 +276,16 @@ def detail_sheet(
         entrance = next(e for e in plan.elements if e.kind == "entrance")
         bays, floors = entrance.tags["bays"], entrance.tags["floors"]
         bridges = [e for e in plan.elements if e.kind == "bridge"]
-        crown = next(
-            e for e in plan.elements if e.kind == "crown" and e.tags["tower"].endswith("central")
+        crown = next(e for e in plan.elements if e.kind == "crown" and e.tags["tower"] == CENTRAL)
+        base = f"{CENTRAL}/section.0"
+        capital = {
+            c.floor
+            for e in plan.elements
+            if e.kind == "window" and e.tags["mass"] == base and e.tags["zone"] == "capital"
+            for c in instances(plan, e)
+        }
+        merlons = sum(
+            e.count for e in plan.elements if e.kind == "merlon" and e.tags["mass"] == base
         )
         captions = {
             "entrance": f"{bays[1] - bays[0]} bays x {floors[1] - floors[0]} floors",
@@ -273,6 +294,7 @@ def detail_sheet(
             else "",
             "bridge": f"{len(bridges)} pavilion bridges",
             "tower corner": "south-east corner of the tower's base",
+            "setback": f"capital {len(capital)} floors, cornice, {merlons} merlons",
             "crown": f"{crown.params.get('tiers', 0)} tiers, "
             f"spire {crown.params.get('spire_height', 0):.0f} m",
         }

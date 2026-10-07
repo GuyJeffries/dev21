@@ -32,6 +32,8 @@ from arcology.rules import (
     bays,
     box_extent,
     mass,
+    notch_for,
+    ring_params,
     rnd,
     sample,
 )
@@ -66,6 +68,7 @@ PAVILION_SHARE = 0.45  # outer-ring pavilions are this share of a sister tower's
 PAVILION_SLENDERNESS = 3.0  # and at most this many times as tall as they are wide
 SETBACK_AT = 0.72  # secondary towers step in once, this far up
 BRIDGE_FLOORS = 2
+BRIDGE_DATUM_MIN = 3  # floors above the towers' feet: doors and their crests stay clear
 BRIDGE_SLAB = 0.6
 BRIDGE_FIN = 0.2  # bronze fins outside the bridge glazing
 BRIDGE_KEEL = (0.8, 0.6)  # stepped keel under the deck: upper step, lower step
@@ -202,25 +205,38 @@ def _tower(spec, slot, gseed, size, floors, anchor, stands_on, gap, inset) -> To
         out_y = (stands_on.params["depth"] - ad) / 4 - size / 2
     else:
         out_x = out_y = gap
+    # Towers at a wall's end line up with the end of its main face, clear of any notch.
+    cut = anchor.params.get("notch", 0.0)
     if slot.side in ("east", "west"):
         x = (1 if slot.side == "east" else -1) * (aw / 2 + out_x + size / 2)
-        y = slot.pos * (ad / 2 - size / 2)
+        y = slot.pos * (ad / 2 - cut - size / 2)
     else:
-        x = slot.pos * (aw / 2 - size / 2)
+        x = slot.pos * (aw / 2 - cut - size / 2)
         y = (1 if slot.side == "north" else -1) * (ad / 2 + out_y + size / 2)
     step = bays(inset * size, bay)
     marks = [0, floors]
     if floors >= 10 and size - 2 * step >= bay:
         marks = [0, round(SETBACK_AT * floors), floors]
+    top = size - 2 * step if len(marks) == 3 else size
+    wanted = sample(spec.secondary_towers.corner_notch, gseed, "corner_notch", integer=True)
+    notch = notch_for(wanted, bay, [step] if len(marks) == 3 else [], top)
     base_floor = stands_on.floor + round(stands_on.params["height"] / fh)
-    tags = {"role": "tower", "tower": tid, "rank": slot.rank, "stands_on": stands_on.id}
+    tags = {
+        "role": "tower",
+        "tower": tid,
+        "rank": slot.rank,
+        "ring": slot.ring,
+        "stands_on": stands_on.id,
+    }
     sections, w = [], size
     for k in range(len(marks) - 1):
         if k:
             w -= 2 * step
         start, count = base_floor + marks[k], marks[k + 1] - marks[k]
         sseed = derive_seed(seed, f"section.{k}")
-        sections.append(mass(f"{tid}/section.{k}", sseed, w, w, start, count, fh, tags, x, y))
+        sections.append(
+            mass(f"{tid}/section.{k}", sseed, w, w, start, count, fh, tags, x, y, notch=notch)
+        )
     return Tower(tid, slot, tuple(sections), gseed, anchor)
 
 
@@ -242,20 +258,16 @@ def _crown(spec: Spec, tower: Tower) -> Element:
         "tags": {"role": "crown", "tower": tower.id},
     }
     if termination == "flat":
-        t = PARAPET_THICKNESS
-        params = {
-            "width": W,
-            "depth": D,
-            "inner_width": rnd(W - 2 * t),
-            "inner_depth": rnd(D - 2 * t),
-            "height": PARAPET_HEIGHT,
-        }
+        params = ring_params(top, [[-PARAPET_THICKNESS, 0.0, PARAPET_HEIGHT]])
         return Element(
             recipe="parapet.ring", params=params, extent=box_extent(W, D, PARAPET_HEIGHT), **common
         )
     tiers = sample((3, 4) if central else (2, 3), cseed, "tiers", integer=True)
     tier_height = rnd(CROWN_TIER_FLOORS * fh)
-    step = rnd(min(W, D) / (2 * (tiers + 1.5)))
+    # Tiers step in at least as far as any corner notch, so the crown sits within the outline.
+    step = rnd(max(min(W, D) / (2 * (tiers + 1.5)), top.params.get("notch", 0.0)))
+    while tiers > 1 and min(W, D) / 2 - tiers * step < 1.5:
+        tiers -= 1
     tower_height = sum(s.params["height"] for s in tower.sections)
     spire = (
         rnd(sample((0.12, 0.2), cseed, "spire") * tower_height) if termination == "spire" else 0.0
@@ -281,18 +293,11 @@ def _band(spec: Spec, tower: Tower, floor: int) -> Element:
     base, p, fh = tower.sections[0], BAND_PROJECTION, spec.floor_height
     W, D = base.params["width"], base.params["depth"]
     x, y, _ = base.translation
-    params = {
-        "width": rnd(W + 2 * p),
-        "depth": rnd(D + 2 * p),
-        "inner_width": W,
-        "inner_depth": D,
-        "height": rnd(fh),
-    }
     return Element(
         id=f"{tower.id}/band",
         kind="band",
         recipe="band.ring",
-        params=params,
+        params=ring_params(base, [[p, 0.0, fh]]),
         translation=(x, y, rnd(floor * fh)),
         extent=box_extent(W + 2 * p, D + 2 * p, fh),
         floor=floor,
@@ -302,8 +307,9 @@ def _band(spec: Spec, tower: Tower, floor: int) -> Element:
     )
 
 
-def _bridge(spec: Spec, tower: Tower, floor: int) -> Element:
-    """An enclosed gallery straight across the gap from `tower`'s anchor to `tower`."""
+def _bridge(spec: Spec, tower: Tower, floor: int, floors: int = BRIDGE_FLOORS) -> Element:
+    """An enclosed gallery `floors` tall, straight across the gap from `tower`'s anchor to
+    `tower`."""
     fh, bay = spec.floor_height, spec.facade.bay_width
     a, s, side = tower.anchor, tower.sections[0], tower.slot.side
     sx, sy, _ = s.translation
@@ -314,8 +320,11 @@ def _bridge(spec: Spec, tower: Tower, floor: int) -> Element:
     else:
         sign = 1 if side == "north" else -1
         origin, span = (sx, sign * a.params["depth"] / 2), abs(sy) - half - a.params["depth"] / 2
-    width = max(bay, min(2 * bay, s.params["width"] - bay))
-    height = BRIDGE_FLOORS * fh
+    # Within both main faces, clear of any corner notch.
+    along = "depth" if side in ("east", "west") else "width"
+    faces = [m.params[along] - 2 * m.params.get("notch", 0.0) for m in (a, s)]
+    width = max(bay, min(2 * bay, min(faces) - bay))
+    height = floors * fh
     params = {
         "span": rnd(span),
         "width": rnd(width),
@@ -348,19 +357,11 @@ def _parapet(m: Element, fh: float) -> Element:
     """A low wall round the edge of a roof terrace."""
     W, D, H = m.params["width"], m.params["depth"], m.params["height"]
     x, y, z = m.translation
-    t = PARAPET_THICKNESS
-    params = {
-        "width": W,
-        "depth": D,
-        "inner_width": rnd(W - 2 * t),
-        "inner_depth": rnd(D - 2 * t),
-        "height": PARAPET_HEIGHT,
-    }
     return Element(
         id=f"{m.id}/parapet",
         kind="parapet",
         recipe="parapet.ring",
-        params=params,
+        params=ring_params(m, [[-PARAPET_THICKNESS, 0.0, PARAPET_HEIGHT]]),
         translation=(x, y, rnd(z + H)),
         extent=box_extent(W, D, PARAPET_HEIGHT),
         floor=m.floor + round(H / fh),
@@ -381,27 +382,31 @@ def composition(spec: Spec, podium, central: Tower, towers: list[Tower]) -> list
             out.append(_parapet(m, fh))
 
     # Ring 0: every bridge to the central tower on one shared floor, with a band below.
+    # The band clears the doors at the towers' feet (and their crests), and the bridges
+    # clear the cornices at the tops of the base sections by a floor.
     inner = [t for t in towers if t.slot.ring == 0]
     if inner:
         cluster = [central, *inner]
         lowest = min(round(t.sections[0].params["height"] / fh) for t in cluster)
-        if lowest < BRIDGE_FLOORS + 1:
+        highest = lowest - BRIDGE_FLOORS - 1
+        if highest < BRIDGE_DATUM_MIN:
             raise ResolveError(f"{TOWERS}: {lowest}-floor base sections are too short for bridges")
         level = sample(
             spec.secondary_towers.bridge_level, path_seed(spec.seed, TOWERS), "bridge_level"
         )
         datum = central.sections[0].floor + min(
-            lowest - BRIDGE_FLOORS, max(1, round(level * lowest))
+            highest, max(BRIDGE_DATUM_MIN, round(level * lowest))
         )
         out += [_band(spec, t, datum - 1) for t in cluster]
         out += [_bridge(spec, t, datum) for t in inner]
 
-    # Outer rings: into the wall of the tier above, halfway up it (and at least a floor up,
-    # so the keel clears the terrace).
+    # Outer rings: into the wall of the tier above, halfway up it, at least a floor clear of
+    # the terrace (for the keel) and of the cornice; a single floor tall on low walls.
     for t in towers:
         if t.slot.ring:
             wall = round(t.anchor.params["height"] / fh)
-            if wall < BRIDGE_FLOORS + 1:
+            floors = min(BRIDGE_FLOORS, wall - 2)
+            if floors < 1:
                 raise ResolveError(f"{t.anchor.id}: {wall} floors is too low to bridge into")
-            out.append(_bridge(spec, t, t.anchor.floor + max(1, (wall - BRIDGE_FLOORS) // 2)))
+            out.append(_bridge(spec, t, t.anchor.floor + (wall - floors) // 2, floors))
     return out

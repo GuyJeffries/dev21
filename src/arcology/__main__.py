@@ -45,7 +45,7 @@ def main(argv: list[str] | None = None) -> int:
     s.add_argument("--cols", type=int, default=4)
     s.add_argument("--samples", type=int, default=16)
 
-    t = sub.add_parser("detail", help="spec -> close-ups (entrance, bridge, crown) at L0")
+    t = sub.add_parser("detail", help="spec -> close-ups (entrance, bridge, setback, crown) at L0")
     t.add_argument("spec", type=Path)
     t.add_argument("--seeds", type=int, nargs="+", help="default: the first 3 golden seeds")
     t.add_argument("-o", "--out", type=Path, default=Path("build/detail"))

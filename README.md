@@ -11,7 +11,7 @@ Blender runs headless as a Python module (`bpy` from PyPI); no Blender install i
 ```bash
 uv sync                                                        # Python 3.13, bpy 5.2.2, Pillow
 uv run arcology sheet specs/default.json -o build/review       # contact sheet of 12 golden seeds (L2)
-uv run arcology detail specs/default.json -o build/detail      # close-ups of 3 seeds (L0): entrance, cluster, crown
+uv run arcology detail specs/default.json -o build/detail      # close-ups of 3 seeds (L0): entrance, cluster, setback, crown
 uv run arcology resolve specs/default.json --seed 7 -o plan.json
 uv run arcology build plan.json -o build/seed-7 --lod L2
 ./scripts/check.sh                                             # lint, format check, tests
@@ -32,10 +32,15 @@ spec (specs/*.json) → resolve (plain Python) → plan.json
   piers on every bay line, L-shaped corners, a Deco glazed-channel window on every bay of every floor (about 13,000
   per building, each with its own identity), and a stepped main entrance centred on the south face. L0 and L2
   representations; facade coverage, symmetry and entrance checks.
-
 - **Phase 2 (arcology composition):** up to 9 secondary towers in mirror twins: sister towers beside the central
   tower, bridged to it on a shared transfer floor marked by stone bands, and squat pavilions on the lower terraces
   bridged into the tier above. Stepped crowns on every tower, a spire on the central one, parapets on every
   terrace. Checks for dominance, bridges, crowns, clearance and facade placement.
 
-Next is Phase 3: facade grammar (window and door variants, pilasters, cornices, ornament).
+- **Phase 3 (facade grammar):** the middle scale. Notched corners on towers and podium tiers; pilasters every few
+  bays with recessed piers between; base, shaft and capital zones with their own windows; stepped cornices on every
+  mass; doors at the foot of every tower; chevrons, fluted pilasters and stepped merlons gated by an ornament
+  density that follows the hierarchy (central tower richest). Window channels at L2 keep the zones legible at a
+  distance. Checks for cornices and ornament hierarchy; bridges now also meet walls, not notches.
+
+Next is Phase 4: style and variation (style parameters, sweep sheets, a 100-seed style check).

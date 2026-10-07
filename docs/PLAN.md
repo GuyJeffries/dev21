@@ -1,6 +1,6 @@
 # Arcology Generator: Project Plan
 
-**Status:** Phases 0, 1 and 2 complete (2026-10-07); Phase 3 next.
+**Status:** Phases 0 to 3 complete (2026-10-07); Phase 4 next.
 
 Revision 2 (2026-10-07). Revises the original proposal after review. This plan is a starting point, not the full
 scope: the objective right now is to get it working, with "exciting retro-futurist arcologies" as a later pass.
@@ -426,6 +426,16 @@ The first attempt, three slim towers per lane, passed every check but read as fi
 **Done when:** large variation emerges without bespoke assets, and ornament reinforces hierarchy instead of becoming
 noise.
 
+**As built:** the middle scale, between massing and windows. Shapes: towers may have notched corners, and podium
+tiers below the top a notch no deeper than a tier step (the extrusion primitive and outline-following rings make
+any rectilinear outline possible). Facades: pilasters on every k-th bay line, set out symmetrically from each
+facade's centre, with the piers between set back; base, shaft and capital zones with their own windows; a stepped
+cornice on every mass; doors at the foot of every tower. Ornament: chevrons on capital panels, fluted pilasters
+and stepped merlons over parapets, switched on by an ornament density (`style.ornament_density` scaled by each
+mass's standing: central 1.0, sister 0.8, podium 0.7, pavilion 0.6), so ornament gathers on the central tower.
+At L2, one channel per bay column stands in for each window block, so the zones read at a distance; the first
+contact sheet of this phase showed none of them, because windows are L0-L1 only.
+
 ### Phase 4: Style and variation
 
 **Build:**
@@ -513,6 +523,8 @@ Inside building 3 → looking through window → distinctive building 2 → cut 
 | Setback rhythm | Footprint never grows with height; setbacks at the spec's floors | Pass |
 | Termination | Every tower ends in a crown or termination element | 100% |
 | Floor alignment | Elements sit on floor boundaries | 100% |
+| Cornices | Every mass has one cornice, following its outline, in its top floor | 100% |
+| Ornament hierarchy | No standing carries an ornament system more richly than the standing above it | Pass |
 
 ### Visual (judged by you, from the pull request)
 

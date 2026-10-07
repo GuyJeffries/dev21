@@ -10,6 +10,7 @@ from arcology.build import (
     MANIFEST_SCHEMA,
     MATERIALS,
     RECIPES,
+    Prism,
     build_library,
     build_mesh,
     mesh_from_boxes,
@@ -50,6 +51,44 @@ def test_every_recipe_mesh_matches_its_element_extent(plan):
         assert lo == pytest.approx(list(e.extent[0]), abs=1e-3), e.id
         assert hi == pytest.approx(list(e.extent[1]), abs=1e-3), e.id
         assert {m.name for m in me.materials} <= set(MATERIALS), e.id
+
+
+def _faces(part):
+    """Axis-aligned faces as (axis, outward sign or None if unknown, coordinate, extent along
+    the other two axes). A prism's front and back are polygons, so only its straight sides
+    are compared (sign unknown: they are checked against both)."""
+    if isinstance(part, Prism):
+        pts = list(part.points)
+        out = []
+        for (x0, z0), (x1, z1) in zip(pts, pts[1:] + pts[:1], strict=True):
+            if abs(x0 - x1) < 1e-9:
+                out.append((0, None, x0, ((part.y0, part.y1), tuple(sorted((z0, z1))))))
+            elif abs(z0 - z1) < 1e-9:
+                out.append((2, None, z0, (tuple(sorted((x0, x1))), (part.y0, part.y1))))
+        return out
+    lo, hi, _ = part
+    out = []
+    for axis in range(3):
+        rect = tuple((lo[a], hi[a]) for a in range(3) if a != axis)
+        out += [(axis, -1, lo[axis], rect), (axis, 1, hi[axis], rect)]
+    return out
+
+
+def test_no_two_parts_share_a_face_pointing_the_same_way(plan):
+    # Coplanar, overlapping faces with the same normal flicker in a rasteriser.
+    for e in {element_key(e, "L0"): e for e in plan.elements}.values():
+        faces = [(i, f) for i, part in enumerate(RECIPES[e.recipe](e.params)) for f in _faces(part)]
+        for j, (i, (axis, sign, c, rect)) in enumerate(faces):
+            for i2, (axis2, sign2, c2, rect2) in faces[j + 1 :]:
+                if i2 == i or axis2 != axis or abs(c - c2) > 1e-6:
+                    continue
+                if sign is not None and sign2 is not None and sign != sign2:
+                    continue
+                overlap = all(
+                    min(a[1], b[1]) - max(a[0], b[0]) > 1e-4
+                    for a, b in zip(rect, rect2, strict=True)
+                )
+                assert not overlap, (e.id, e.recipe, i, i2)
 
 
 def test_library_glb_matches_extent(built):

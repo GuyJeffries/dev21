@@ -26,7 +26,7 @@ def placements(row: dict) -> Iterator[tuple[str, list[float]]]:
     axes = array["axes"]
     for index in itertools.product(*(range(a["count"]) for a in axes)):
         names = [
-            f"{a['name']}.{a['start'] + i:0{a['digits']}d}"
+            f"{a['name']}.{a['start'] + i * a.get('stride', 1):0{a['digits']}d}"
             for a, i in zip(axes, index, strict=True)
         ]
         offset = [sum(i * a["step"][k] for a, i in zip(axes, index, strict=True)) for k in range(3)]

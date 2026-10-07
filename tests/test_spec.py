@@ -63,6 +63,14 @@ def test_plan_document_example_spec_is_valid():
             {"schema": SCHEMA, "facade": {"entrance_bays": 2.5}},
             "facade.entrance_bays: expected a whole",
         ),
+        (
+            {"schema": SCHEMA, "facade": {"pilaster_every": 13}},
+            "facade.pilaster_every: 13 is outside 0..12",
+        ),
+        (
+            {"schema": SCHEMA, "central_tower": {"corner_notch": [0, 7]}},
+            "central_tower.corner_notch[1]: 7 is outside 0..6",
+        ),
     ],
 )
 def test_invalid_specs_name_the_field(data, message):

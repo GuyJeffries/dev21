@@ -41,7 +41,8 @@ class Element:
     rotation_z_deg: float = 0.0
     lod: tuple[str, ...] = LODS
     tags: dict = field(default_factory=dict)  # "role", "facade"; reserved: "program", "provision"
-    # Repetition: {"prefix": id, "axes": [{"name", "start", "count", "step", "digits"}, ...]}
+    # Repetition: {"prefix": id, "axes": [{"name", "start", "count", "step", "digits"}, ...]};
+    # an axis may add "stride": copy i is named start + i * stride (default 1)
     array: dict | None = None
 
     def to_dict(self) -> dict:
@@ -150,7 +151,7 @@ def instances(plan: Plan, e: Element) -> Iterator[Element]:
     prefix, axes = e.array["prefix"], e.array["axes"]
     prefix_seed = path_seed(plan.seed, prefix)
     for index in itertools.product(*(range(a["count"]) for a in axes)):
-        positions = [a["start"] + i for a, i in zip(axes, index, strict=True)]
+        positions = [a["start"] + i * a.get("stride", 1) for a, i in zip(axes, index, strict=True)]
         names = [f"{a['name']}.{p:0{a['digits']}d}" for a, p in zip(axes, positions, strict=True)]
         seed = prefix_seed
         for name in names:

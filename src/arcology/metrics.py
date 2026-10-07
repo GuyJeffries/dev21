@@ -11,24 +11,35 @@ import math
 from collections import Counter
 
 from arcology.plan import LODS, Element, Plan, element_bounds, element_key, plan_bounds
+from arcology.rules import CENTRAL, in_outline, outline, standing
 
-CENTRAL = "arcology/tower.central"
 DOMINANCE = 1.3  # central tower floors / tallest secondary tower's, at least
 MAX_SPAN = 30.0  # metres a bridge may span
+HIERARCHY = ("central", "sister", "pavilion")  # ornament must not increase down this order
 
 
 def _whole(x: float, module: float) -> bool:
     return abs(x / module - round(x / module)) < 1e-6
 
 
+def _within(px: float, py: float, m: Element) -> bool:
+    """Whether the world point (px, py) lies within mass `m`'s outline (notches excluded)."""
+    x, y, _ = m.translation
+    p = m.params
+    return in_outline(px - x, py - y, p["width"], p["depth"], p.get("notch", 0.0), tol=1e-6)
+
+
 def _inside(upper: Element, lower: Element) -> bool:
-    (ulo, uhi), (llo, lhi) = element_bounds(upper), element_bounds(lower)
-    return all(llo[i] - 1e-6 <= ulo[i] and uhi[i] <= lhi[i] + 1e-6 for i in (0, 1))
+    """Every vertex of the upper mass's outline lies within the lower mass's outline."""
+    x, y, _ = upper.translation
+    p = upper.params
+    corners = [e.b for e in outline(p["width"], p["depth"], p.get("notch", 0.0))]
+    return all(_within(x + cx, y + cy, lower) for cx, cy in corners)
 
 
 def _cells(e: Element) -> set[tuple[str, int, int]]:
     """(facade id, bay, floor) cells a window block or entrance fills."""
-    if e.kind == "entrance":
+    if e.kind in ("entrance", "door"):
         prefix = e.id.rsplit("/", 1)[0]
         (b0, b1), (f0, f1) = e.tags["bays"], e.tags["floors"]
         return {(prefix, b, f) for b in range(b0, b1) for f in range(f0, f1)}
@@ -39,21 +50,16 @@ def _cells(e: Element) -> set[tuple[str, int, int]]:
 
 
 def _facade_complete(plan: Plan, masses: list[Element]) -> bool:
-    """Every bay of every floor of every facade is filled exactly once."""
+    """Every bay of every floor of every facade (one per outline edge) is filled exactly once."""
     expected = set()
     for m in masses:
         floors = range(m.floor, m.floor + round(m.params["height"] / plan.floor_height))
-        for side, length in (
-            ("south", "width"),
-            ("north", "width"),
-            ("east", "depth"),
-            ("west", "depth"),
-        ):
-            bays = range(round(m.params[length] / plan.bay_width))
-            expected |= {(f"{m.id}/facade.{side}", b, f) for b in bays for f in floors}
+        for edge in outline(m.params["width"], m.params["depth"], m.params.get("notch", 0.0)):
+            bays = range(round(edge.length / plan.bay_width))
+            expected |= {(f"{m.id}/facade.{edge.name}", b, f) for b in bays for f in floors}
     filled: Counter = Counter()
     for e in plan.elements:
-        if e.kind in ("window", "entrance"):
+        if e.kind in ("window", "entrance", "door"):
             filled.update(_cells(e))
     return set(filled) == expected and all(n == 1 for n in filled.values())
 
@@ -113,9 +119,13 @@ def _overlap(a, b) -> float:
 
 
 def _clear(plan: Plan, masses: list[Element]) -> bool:
-    """No two towers, a tower and the podium, or a bridge and any mass occupy the same
-    space; touching (a tower on a terrace, a bridge against a wall) is fine."""
-    boxes = [(m.tags.get("tower", "podium"), element_bounds(m)) for m in masses]
+    """No two towers, a tower and the podium, or a bridge and any mass or cornice occupy
+    the same space; touching (a tower on a terrace, a bridge against a wall) is fine."""
+    owner = {m.id: m.tags.get("tower", "podium") for m in masses}
+    boxes = [(owner[m.id], element_bounds(m)) for m in masses]
+    boxes += [
+        (owner[e.tags["mass"]], element_bounds(e)) for e in plan.elements if e.kind == "cornice"
+    ]
     boxes += [(e.id, element_bounds(e)) for e in plan.elements if e.kind == "bridge"]
     return all(
         _overlap(a, b) <= 1e-6
@@ -135,10 +145,10 @@ def _on_face(point, box, tol=1e-3) -> bool:
 
 
 def _dressed(plan: Plan, masses: list[Element]) -> bool:
-    """Every core, pier and window of a mass lies within that mass's envelope."""
+    """Every core, pier, window and channel of a mass lies within that mass's envelope."""
     boxes = {m.id: element_bounds(m) for m in masses}
     for e in plan.elements:
-        if e.kind in ("core", "pier", "window"):
+        if e.kind in ("core", "pier", "window", "channel"):
             lo, hi = boxes[e.tags["mass"]]
             elo, ehi = element_bounds(e)
             if not all(lo[i] - 1e-3 <= elo[i] and ehi[i] <= hi[i] + 1e-3 for i in range(3)):
@@ -158,25 +168,126 @@ def _connections(plan: Plan) -> bool:
         x, y, z = b.translation
         top = z + b.params["height"]
         far = (x + b.params["span"] * math.sin(a), y - b.params["span"] * math.cos(a), z)
+        across = (math.cos(a) * b.params["width"] / 2, math.sin(a) * b.params["width"] / 2)
         for point, m in (((x, y, z), ends[0]), (far, ends[1])):
             box = element_bounds(m)
             if not (_on_face(point, box) and box[0][2] <= z and top <= box[1][2]):
                 return False
+            # Both edges of the deck meet the wall, not a notch beside it.
+            for side in (1, -1):
+                if not _within(point[0] + side * across[0], point[1] + side * across[1], m):
+                    return False
     return True
 
 
+def _corniced(plan: Plan, masses: list[Element]) -> bool:
+    """Every mass has one cornice, following its outline, in its top floor."""
+    cornices: dict[str, list[Element]] = {}
+    for e in plan.elements:
+        if e.kind == "cornice":
+            cornices.setdefault(e.tags["mass"], []).append(e)
+    for m in masses:
+        mine = cornices.get(m.id, [])
+        if len(mine) != 1:
+            return False
+        p, q = mine[0].params, m.params
+        if (p["width"], p["depth"], p.get("notch", 0)) != (
+            q["width"],
+            q["depth"],
+            q.get("notch", 0),
+        ):
+            return False
+        top = m.translation[2] + q["height"]
+        if (
+            abs(element_bounds(mine[0])[1][2] - top) > 1e-6
+            or mine[0].translation[:2] != m.translation[:2]
+        ):
+            return False
+    return True
+
+
+def ornament(plan: Plan, masses: list[Element]) -> dict[str, float]:
+    """Ornament per facade cell (bay x floor), by standing: chevrons on windows, flutes on
+    piers (for every floor they rise through), and merlons."""
+    fh, bay = plan.floor_height, plan.bay_width
+    of = {m.id: standing(m) for m in masses}
+    cells: Counter = Counter()
+    for m in masses:
+        edges = outline(m.params["width"], m.params["depth"], m.params.get("notch", 0.0))
+        cells[of[m.id]] += round(m.params["height"] / fh) * sum(
+            round(e.length / bay) for e in edges
+        )
+    pieces: Counter = Counter()
+    for e in plan.elements:
+        if e.tags.get("mass") not in of:
+            continue
+        if e.kind == "window":
+            pieces[of[e.tags["mass"]]] += e.params.get("chevrons", 0) * e.count
+        elif e.kind == "pier":
+            floors = round(e.params["height"] / fh)
+            pieces[of[e.tags["mass"]]] += e.params.get("flutes", 0) * e.count * floors
+        elif e.kind == "merlon":
+            pieces[of[e.tags["mass"]]] += e.count
+    return {s: round(pieces[s] / cells[s], 4) for s in sorted(cells)}
+
+
+def _ornament_hierarchy(plan: Plan, masses: list[Element]) -> bool:
+    """No standing carries an ornament system more richly than the standing above it, down
+    the HIERARCHY: the most chevrons on a capital window, fluted pilasters, and merlons on
+    parapets. A system is compared only where both standings have somewhere to carry it
+    (capital windows, pilasters, parapets over pilasters). Per-cell density (`ornament`)
+    varies with how many pilasters fit a facade, so it is reported rather than checked."""
+    of = {m.id: standing(m) for m in masses}
+    ids = {e.id for e in plan.elements}
+    pilastered = {e.tags["mass"] for e in plan.elements if e.tags.get("order") == "pilaster"}
+    level: dict[tuple[str, str], int] = {}  # (standing, system) -> richest, where carried
+
+    def carry(s, system, value):
+        level[s, system] = max(level.get((s, system), 0), value)
+
+    for m in masses:
+        if m.id in pilastered and f"{m.id}/parapet" in ids:
+            carry(of[m.id], "merlons", 0)
+    for e in plan.elements:
+        s = of.get(e.tags.get("mass"))
+        if s is None:
+            continue
+        if e.kind == "window" and e.tags.get("zone") == "capital":
+            carry(s, "chevrons", e.params.get("chevrons", 0))
+        elif e.tags.get("order") == "pilaster":
+            carry(s, "flutes", e.params.get("flutes", 0))
+        elif e.kind == "merlon":
+            carry(s, "merlons", 1)
+    ranked = [s for s in HIERARCHY if s in of.values()]
+    return all(
+        level[a, system] >= level[b, system]
+        for a, b in zip(ranked, ranked[1:], strict=False)
+        for system in ("chevrons", "flutes", "merlons")
+        if (a, system) in level and (b, system) in level
+    )
+
+
 def _crowned(plan: Plan, stacks: list[list[Element]]) -> bool:
-    """Every tower ends in exactly one crown, sitting on its top section."""
+    """Every tower ends in exactly one crown, sitting on its top section: a ring (a flat
+    termination) following its outline, or stepped tiers within it."""
     crowns = [e for e in plan.elements if e.kind == "crown"]
     for stack in stacks[1:]:
         top = stack[-1]
         mine = [c for c in crowns if c.tags.get("tower") == top.tags["tower"]]
         if len(mine) != 1:
             return False
-        (clo, chi), (tlo, thi) = element_bounds(mine[0]), element_bounds(top)
-        if abs(clo[2] - thi[2]) > 1e-6 or not all(
-            tlo[i] - 1e-6 <= clo[i] and chi[i] <= thi[i] + 1e-6 for i in (0, 1)
-        ):
+        (clo, chi), (_, thi) = element_bounds(mine[0]), element_bounds(top)
+        if "rings" in mine[0].params:
+            p, q = mine[0].params, top.params
+            within = mine[0].translation[:2] == top.translation[:2] and (
+                p["width"],
+                p["depth"],
+                p.get("notch", 0),
+            ) == (q["width"], q["depth"], q.get("notch", 0))
+        else:
+            corners = [(x, y) for x in (clo[0], chi[0]) for y in (clo[1], chi[1])]
+            within = all(_within(x, y, top) for x, y in corners)
+        if abs(clo[2] - thi[2]) > 1e-6 or not within:
             return False
     return True
 
@@ -200,9 +311,11 @@ def measure(plan: Plan) -> dict:
         return sum(round(e.params["height"] / fh) for e in es)
 
     def steps_on_grid(e: Element) -> bool:
+        """Array steps are whole floors or whole bays, matching the axis's stride."""
         for axis in e.array["axes"] if e.array else []:
             size = sum(v * v for v in axis["step"]) ** 0.5
-            if abs(size - (fh if axis["name"] == "floor" else bay)) > 1e-6:
+            unit = fh if axis["name"] == "floor" else bay
+            if abs(size - unit * axis.get("stride", 1)) > 1e-6:
                 return False
         return True
 
@@ -213,7 +326,10 @@ def measure(plan: Plan) -> dict:
         "floor_aligned": all(_whole(e.translation[2], fh) for e in plan.elements)
         and all(_whole(e.params["height"], fh) for e in masses),
         "bay_aligned": all(
-            _whole(e.params["width"], bay) and _whole(e.params["depth"], bay) for e in masses
+            _whole(e.params["width"], bay)
+            and _whole(e.params["depth"], bay)
+            and _whole(e.params.get("notch", 0.0), bay)
+            for e in masses
         )
         and all(steps_on_grid(e) for e in plan.elements),
         "stacked": all(
@@ -226,6 +342,8 @@ def measure(plan: Plan) -> dict:
         "contained": all(_inside(b, a) for a, b in pairs),
         "facade_complete": _facade_complete(plan, masses),
         "dressed": _dressed(plan, masses),
+        "corniced": _corniced(plan, masses),
+        "ornament_hierarchy": _ornament_hierarchy(plan, masses),
         "symmetric": _symmetric(plan),
         "entrance": _entrance(plan, stacks[0]),
         "dominant": dominance is None or dominance >= DOMINANCE,
@@ -247,6 +365,7 @@ def measure(plan: Plan) -> dict:
         if central
         else 0,
         "windows": sum(e.count for e in plan.elements if e.kind == "window"),
+        "ornament": ornament(plan, masses),
         "lod": lod_counts(plan),
         "checks": checks,
     }

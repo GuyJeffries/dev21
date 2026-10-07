@@ -7,6 +7,7 @@ import pytest
 from arcology.metrics import failures, measure
 from arcology.plan import Plan
 from arcology.resolve import ResolveError, resolve
+from arcology.rules import outline
 from arcology.spec import load_spec
 
 SPEC = load_spec(Path(__file__).parents[1] / "specs/default.json")
@@ -42,13 +43,17 @@ def test_mass_ids_are_stable_paths():
     assert all(i.startswith("arcology/tower.") and "/section." in i for i in ids[8:])
 
 
-def test_every_mass_has_a_core_four_corners_and_four_faces():
-    plan = resolve(SPEC)
+def test_every_mass_is_dressed_round_its_outline():
+    plan = resolve(_with(SPEC, "central_tower", corner_notch=1))
     for mass in (e for e in plan.elements if e.kind == "mass"):
         kids = {e.id.removeprefix(mass.id + "/") for e in _under(plan, mass.id + "/")}
-        assert {"core", "corner.se", "corner.ne", "corner.nw", "corner.sw"} <= kids
-        for side in ("south", "east", "north", "west"):
-            assert any(k.startswith(f"facade.{side}/windows") for k in kids), (mass.id, side)
+        edges = outline(mass.params["width"], mass.params["depth"], mass.params.get("notch", 0))
+        assert {"core", "cornice"} <= kids
+        assert {f"corner.{e.corner}" for e in edges} <= kids
+        for e in edges:
+            assert any(k.startswith(f"facade.{e.name}/windows") for k in kids), (mass.id, e.name)
+    notched = plan.element(f"{TOWER}/section.0")
+    assert notched.recipe == "mass.notched" and notched.params["notch"] == plan.bay_width
 
 
 def test_changing_the_podium_does_not_reshuffle_the_tower():

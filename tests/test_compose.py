@@ -123,3 +123,19 @@ def test_too_many_towers_for_the_room_is_named():
     )
     with pytest.raises(ResolveError, match="arcology/towers: no room for 9 towers"):
         resolve(_towers(cramped, count=9))
+
+
+def test_pavilions_beside_notched_tiers_bridge_into_the_main_face():
+    # A central tower too broad for sister towers pushes pavilions out to the second ring,
+    # beside a tier with notched corners: they must line up with its main face.
+    spec = replace(
+        SPEC,
+        primary_mass=replace(
+            SPEC.primary_mass, width=640, depth=640, tier_inset=0.09, corner_notch=1.0
+        ),
+        central_tower=replace(SPEC.central_tower, width=258, depth=258),
+    )
+    plan = resolve(_towers(spec, count=8, placement="corners"))
+    anchors = [plan.element(b.tags["from"]) for b in plan.elements if b.kind == "bridge"]
+    assert any(a.params.get("notch") for a in anchors)
+    assert failures(measure(plan)) == []

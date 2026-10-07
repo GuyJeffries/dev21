@@ -97,6 +97,9 @@ class PrimaryMass:
     tiers: tuple[IntRange, ...] = _f((6, (5, 7), (4, 6), (3, 5)), _list(_range(integer=True, lo=1)))
     # Fraction of the base width (and depth) each tier steps in, per side.
     tier_inset: Range = _f((0.05, 0.09), _range(lo=0, hi=0.24))
+    # Share of the tier step cut from each corner of every tier but the top (re-entrant
+    # corners stepping up the podium), in whole bays.
+    corner_notch: Range = _f(0.0, _range(lo=0, hi=1))
 
 
 @dataclass(frozen=True)
@@ -110,6 +113,8 @@ class CentralTower:
     )
     # Fraction of the current width (and depth) removed per side at each setback.
     setback_inset: Range = _f((0.06, 0.12), _range(lo=0, hi=0.24))
+    # Bays cut from every corner (re-entrant corners); never deeper than the setbacks.
+    corner_notch: IntRange = _f(0, _range(integer=True, lo=0, hi=6))
 
 
 @dataclass(frozen=True)
@@ -128,6 +133,8 @@ class SecondaryTowers:
     gap: IntRange = _f((1, 3), _range(integer=True, lo=1, hi=10))  # bays from the central tower
     # Where the bridges and transfer band sit, as a share of the lowest base section's floors.
     bridge_level: Range = _f((0.45, 0.75), _range(lo=0.05, hi=0.95))
+    # Bays cut from every corner, as for the central tower.
+    corner_notch: IntRange = _f(0, _range(integer=True, lo=0, hi=4))
 
 
 @dataclass(frozen=True)
@@ -137,6 +144,9 @@ class Facade:
     # Glazed share of each bay and floor; the rest is stone frame and spandrel.
     density: Range = _f((0.6, 0.9), _range(lo=0, hi=1))
     pier_width: Range = _f((0.8, 1.2), _range(lo=0.2, hi=3))  # piers stand on every bay line
+    # Every k-th bay line carries a full-depth pilaster, set out symmetrically from the
+    # facade's centre; the piers between stand back. 0: every pier the same.
+    pilaster_every: IntRange = _f((2, 4), _range(integer=True, lo=0, hi=12))
     pier_depth: float = _f(0.45, _number(lo=0.05, hi=2))  # how far piers stand proud
     window_recess: float = _f(0.3, _number(lo=0.05, hi=1.5))  # glazing set back in the frame
     mullions: IntRange = _f((1, 3), _range(integer=True, lo=0, hi=6))
