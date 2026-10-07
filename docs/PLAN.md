@@ -95,6 +95,11 @@ Consequences:
 The fundamental generated object is the **arcology**: one enormous integrated building, not a collection of
 unrelated towers.
 
+**Target scale** (decided 2026-10-07, see [`LAYERS.md`](LAYERS.md) section 12): a square base 2 km x 2 km and an
+overall height of 2 km. The visible base is the upper half of a diamond (the lower half is buried foundations): a
+pyramid rising about 1 km to a peak buried inside a fat central tower. Today's buildings are about a quarter of
+that size.
+
 ```
 ARCOLOGY
 ├── Primary mass ........ pyramid / stepped podium

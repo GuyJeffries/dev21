@@ -73,7 +73,9 @@ Scale layers are named, not numbered, because L0 to L3 already mean representati
 | Cell | 1 bay x 1 floor | A window and its piers | Every window |
 | Detail | Under 1 m | Mullions, chevrons, flutes, joints | Inside recipes |
 
-At target scale a face has hundreds of bays and hundreds of floors, which is millions of cells. Cells can only be
+Target scale (section 12): a 2 km x 2 km base, 2 km high, with a pyramid rising about 1 km at roughly 45 degrees to
+a peak buried in a fat central tower. At that scale a face has hundreds of bays and hundreds of floors, which is
+millions of cells. Cells can only be
 generated near the camera, which is a Phase 5 problem and the strongest reason to make the hierarchy explicit first.
 
 ## 4. The layer tree
@@ -228,12 +230,25 @@ Each step is pushed with its sheets:
 Real interiors (stand-in shells only), figures and reliefs (empty slots only), the consequence system, scaling up to
 2 km, the shaft layer and the pyramid. All of them build on the tree.
 
-## 12. Open questions
+## 12. Decisions (2026-10-07)
 
-1. **Target scale:** roughly a 2 km footprint and a 1.5 to 2.5 km height, or something else?
-2. **The pyramid:** a smooth slope (images 4 and 7) as well as stepped tiers (images 5, 6 and 8)? A smooth face needs
-   sloped geometry; many small steps approximate it and also cover terracing.
-3. **Placement:** exceptions strictly by composition (very Deco), or also a small budget of free placements for
-   surprise?
-4. **Figures:** empty asset slots in this step, or later?
-5. **Palette:** add the blue accent (lapis or teal) now?
+1. **Target scale:** a square base 2 km x 2 km and an overall height of 2 km. The pyramid rises about 1 km to its
+   peak (so its faces slope at roughly 45 degrees), but the peak is buried inside the central tower, which emerges
+   from the pyramid and carries the height on. The central tower stays fat, as in today's contact sheets (a fifth or
+   so of the base width); keep that proportion through the scale-up.
+2. **The pyramid:** both smooth and stepped, and they can change on one building. The steps set the rhythm: flat
+   terraces at the steps, with smooth sloped runs or stepped tiers between them.
+3. **Placement:** still open; see below.
+4. **Figures:** yes, empty asset slots now (`kind: "asset_slot"`, as section 9 of the plan reserves). Filling them
+   will be generative too, later.
+5. **Palette:** stones, concretes and metals only. Accents yes (contrasting stones and metals, such as bronze, gilt,
+   nickel or dark granite), but not blue.
+
+### Open: free placements
+
+Composition places every exception today: the axis, the base, under setbacks, at junctions, always mirrored. A free
+placement is an exception the seed puts somewhere composition doesn't single out, such as a loggia two panels in
+from the corner of a flank, or a field breaking one band halfway up the shaft. It stays on the grid and mirrored, so
+it still reads as deliberate, but it isn't predictable from the rules. A budget caps how many there are (say one or
+two per main face) so they surprise rather than scatter. The proposal is to build composition first, then add free
+placements as a style setting (default off) if the what-if sheet looks too regular.
