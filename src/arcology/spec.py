@@ -6,7 +6,7 @@ the seed picks one member.
 
 Loading is strict: unknown fields are errors (a typo must not be silently ignored),
 missing fields take the defaults below, and `schema` must name this version.
-Sections `secondary_towers` and `facade` are accepted now but used from Phases 2 and 1.
+The `secondary_towers` section is accepted now but used from Phase 2.
 """
 
 import json
@@ -121,10 +121,18 @@ class SecondaryTowers:  # used from Phase 2
 
 
 @dataclass(frozen=True)
-class Facade:  # used from Phase 1; bay_width is already the horizontal grid for massing
-    bay_width: float = _f(6.0, _number(lo=1, hi=30))
+class Facade:
+    bay_width: float = _f(6.0, _number(lo=1, hi=30))  # the horizontal grid, for massing too
     window: str = _f("deco_tall", _choice("deco_tall"))
-    density: float = _f(0.8, _number(lo=0, hi=1))
+    # Glazed share of each bay and floor; the rest is stone frame and spandrel.
+    density: Range = _f((0.6, 0.9), _range(lo=0, hi=1))
+    pier_width: Range = _f((0.8, 1.2), _range(lo=0.2, hi=3))  # piers stand on every bay line
+    pier_depth: float = _f(0.45, _number(lo=0.05, hi=2))  # how far piers stand proud
+    window_recess: float = _f(0.3, _number(lo=0.05, hi=1.5))  # glazing set back in the frame
+    mullions: IntRange = _f((1, 3), _range(integer=True, lo=0, hi=6))
+    # Main entrance, centred on the podium's south facade.
+    entrance_bays: IntRange = _f((3, 5), _range(integer=True, lo=1, hi=15))
+    entrance_floors: IntRange = _f((2, 3), _range(integer=True, lo=1, hi=10))
 
 
 @dataclass(frozen=True)

@@ -10,7 +10,8 @@ Blender runs headless as a Python module (`bpy` from PyPI); no Blender install i
 
 ```bash
 uv sync                                                        # Python 3.13, bpy 5.2.2, Pillow
-uv run arcology sheet specs/default.json -o build/review       # contact sheet of 12 golden seeds
+uv run arcology sheet specs/default.json -o build/review       # contact sheet of 12 golden seeds (L2)
+uv run arcology detail specs/default.json -o build/detail      # close-ups of 3 seeds (L0)
 uv run arcology resolve specs/default.json --seed 7 -o plan.json
 uv run arcology build plan.json -o build/seed-7 --lod L2
 ./scripts/check.sh                                             # lint, format check, tests
@@ -25,6 +26,11 @@ spec (specs/*.json) → resolve (plain Python) → plan.json
 
 ## Status
 
-Phase 0 (foundations) is complete: schema v0, per-element seeds, a resolver for a stepped podium and a central tower
-with setbacks, structural metrics, element library and manifest, stand-in assembler, and contact sheets in CI.
-Next is Phase 1: massing primitives and the first facade (bays, one window recipe, one door recipe).
+- **Phase 0 (foundations):** schema v0, per-element seeds, structural metrics, element library and manifest,
+  stand-in assembler, contact sheets in CI.
+- **Phase 1 (massing and first facade):** a stepped podium and a central tower with setbacks, dressed with stone
+  piers on every bay line, L-shaped corners, a Deco glazed-channel window on every bay of every floor (about 13,000
+  per building, each with its own identity), and a stepped main entrance centred on the south face. L0 and L2
+  representations; facade coverage, symmetry and entrance checks.
+
+Next is Phase 2: arcology composition (secondary towers, bridges, terraces, crowns).

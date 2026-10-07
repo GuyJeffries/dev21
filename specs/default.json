@@ -26,6 +26,20 @@
     "setbacks": [[38, 46], [60, 70], [78, 88]],
     "setback_inset": [0.06, 0.12]
   },
-  "secondary_towers": { "count": 0, "placement": "radial", "height_ratio": [0.4, 0.7] },
-  "facade": { "bay_width": 6.0, "window": "deco_tall", "density": 0.8 }
+  "secondary_towers": {
+    "count": 0,
+    "placement": "radial",
+    "height_ratio": [0.4, 0.7]
+  },
+  "facade": {
+    "bay_width": 6.0,
+    "window": "deco_tall",
+    "density": [0.6, 0.9],
+    "pier_width": [0.8, 1.2],
+    "pier_depth": 0.45,
+    "window_recess": 0.3,
+    "mullions": [1, 3],
+    "entrance_bays": [3, 5],
+    "entrance_floors": [2, 3]
+  }
 }

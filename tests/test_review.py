@@ -3,9 +3,9 @@ from dataclasses import replace
 
 from PIL import Image, ImageStat
 
-from arcology.plan import plan_bounds
+from arcology.plan import element_bounds, plan_bounds
 from arcology.resolve import resolve
-from arcology.review import contact_sheet, shared_camera
+from arcology.review import contact_sheet, detail_cameras, detail_sheet, shared_camera
 
 
 def test_shared_camera_encloses_every_plan(spec):
@@ -14,6 +14,12 @@ def test_shared_camera_encloses_every_plan(spec):
     for p in plans:
         lo, hi = plan_bounds(p)
         assert all(camera["lo"][i] <= lo[i] and hi[i] <= camera["hi"][i] for i in range(3))
+
+
+def test_detail_cameras_frame_the_entrance(plan):
+    camera = detail_cameras(plan)["entrance"]
+    lo, hi = element_bounds(next(e for e in plan.elements if e.kind == "entrance"))
+    assert all(camera["lo"][i] <= lo[i] and hi[i] <= camera["hi"][i] for i in range(3))
 
 
 def test_contact_sheet_renders_tiles_and_metrics(spec, tmp_path):
@@ -29,3 +35,11 @@ def test_contact_sheet_renders_tiles_and_metrics(spec, tmp_path):
     table = (tmp_path / "metrics.md").read_text().splitlines()
     assert table[0] == "### Contact sheet: 2 seeds, L2"
     assert [line.split("|")[1].strip() for line in table[4:]] == ["4", "5"]
+
+
+def test_detail_sheet_renders_two_close_ups_per_seed(spec, tmp_path):
+    detail_sheet(spec, [6], tmp_path, tile=(96, 64), samples=1)
+    assert Image.open(tmp_path / "detail_sheet.jpg").size == (192, 64 + 34)
+    for name in ("entrance", "tower_corner"):
+        tile = Image.open(tmp_path / f"seed-6/{name}.png").convert("L")
+        assert ImageStat.Stat(tile).stddev[0] > 5, name

@@ -1,6 +1,6 @@
 # Arcology Generator: Project Plan
 
-**Status:** Phase 0 complete (2026-10-07); Phase 1 next.
+**Status:** Phases 0 and 1 complete (2026-10-07); Phase 2 next.
 
 Revision 2 (2026-10-07). Revises the original proposal after review. This plan is a starting point, not the full
 scope: the objective right now is to get it working, with "exciting retro-futurist arcologies" as a later pass.

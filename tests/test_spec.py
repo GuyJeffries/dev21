@@ -54,6 +54,15 @@ def test_plan_document_example_spec_is_valid():
         ({"schema": SCHEMA, "style": {"symmetry": "radial"}}, "style.symmetry: expected one of"),
         ({"schema": SCHEMA, "floor_height": 40}, "floor_height: 40 is outside 2..12"),
         ({"schema": SCHEMA, "seed": True}, "seed: expected a number"),
+        ({"schema": SCHEMA, "facade": {"mullions": 9}}, "facade.mullions: 9 is outside 0..6"),
+        (
+            {"schema": SCHEMA, "facade": {"pier_width": [1, 0.5]}},
+            "range min 1 is greater than max 0.5",
+        ),
+        (
+            {"schema": SCHEMA, "facade": {"entrance_bays": 2.5}},
+            "facade.entrance_bays: expected a whole",
+        ),
     ],
 )
 def test_invalid_specs_name_the_field(data, message):
