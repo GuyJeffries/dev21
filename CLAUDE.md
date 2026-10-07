@@ -4,6 +4,11 @@ Procedural game assets generated headlessly with Blender's Python module (`bpy`)
 Development happens in Claude Code cloud sessions; the user reviews pull requests rather than running code locally,
 so every change needs evidence they can check without reading the diff (see "Verifying changes").
 
+**Project direction: read `docs/PLAN.md` before starting work.** It is a procedural Art Deco arcology generator
+(spec → plain-Python resolver → Blender builder → manifest-driven assembly; Unreal later). The current `assetgen`
+rocks-and-trees package is a placeholder that proves the harness; Phase 0 of the plan replaces it.
+The user has limited bandwidth: keep work cloud-verifiable and review evidence small (contact sheets, metric tables).
+
 ## Commands
 
 - Setup: `uv sync` (the SessionStart hook in `.claude/hooks/session-start.sh` does this in cloud sessions)
