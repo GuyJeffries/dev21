@@ -143,6 +143,62 @@ def _entrance_deco_main(p: dict) -> list[Box]:
     return boxes
 
 
+def _ring(p: dict) -> list[Box]:
+    """A rectangular ring between an outer and an inner footprint (band course, parapet)."""
+    W, D, w, d, h = (
+        p["width"] / 2,
+        p["depth"] / 2,
+        p["inner_width"] / 2,
+        p["inner_depth"] / 2,
+        p["height"],
+    )
+    return [
+        ((-W, -D, 0), (W, -d, h), "stone"),
+        ((-W, d, 0), (W, D, h), "stone"),
+        ((w, -d, 0), (W, d, h), "stone"),
+        ((-W, -d, 0), (-w, d, h), "stone"),
+    ]
+
+
+def _crown_stepped(p: dict) -> list[Box]:
+    """Ziggurat crown: tiers stepping in on every side, with an optional bronze spire."""
+    W, D, th, st, n = p["width"] / 2, p["depth"] / 2, p["tier_height"], p["step"], p["tiers"]
+    boxes = [
+        (
+            (-W + (i + 1) * st, -D + (i + 1) * st, i * th),
+            (W - (i + 1) * st, D - (i + 1) * st, (i + 1) * th),
+            "stone",
+        )
+        for i in range(n)
+    ]
+    if p["spire_height"] > 0:
+        sw = p["spire_width"] / 2
+        boxes.append(((-sw, -sw, n * th), (sw, sw, n * th + p["spire_height"]), "metal"))
+    return boxes
+
+
+def _bridge_gallery(p: dict) -> list[Box]:
+    """Enclosed gallery across a gap: stone deck and roof, glazed sides behind bronze fins,
+    and a stepped keel underneath that stops short of the transfer bands at each end."""
+    w, span, h, slab, fin = p["width"] / 2, p["span"], p["height"], p["slab"], p["fin"]
+    k1, k2 = p["keel"]
+    clear = p["band"] + 0.1
+    boxes = [
+        ((-w, -span, 0), (w, 0, slab), "stone"),
+        ((-w, -span, h - slab), (w, 0, h), "stone"),
+        ((-w, -span, slab), (-w + 0.12, 0, h - slab), "glass"),
+        ((w - 0.12, -span, slab), (w, 0, h - slab), "glass"),
+        ((-w / 2, -span + clear, -k1), (w / 2, -clear, 0), "stone"),
+        ((-w / 4, -span + clear, -k1 - k2), (w / 4, -clear, -k1), "stone"),
+    ]
+    fins = max(1, round(span / 3))
+    for k in range(fins):
+        y = -span * (k + 0.5) / fins
+        boxes.append(((-w - fin, y - 0.1, slab), (-w, y + 0.1, h - slab), "metal"))
+        boxes.append(((w, y - 0.1, slab), (w + fin, y + 0.1, h - slab), "metal"))
+    return boxes
+
+
 # recipe name -> boxes(params), in the element's frame (see plan.py)
 RECIPES: dict[str, Callable[[dict], list[Box]]] = {
     "mass.box": _mass_box,
@@ -150,6 +206,10 @@ RECIPES: dict[str, Callable[[dict], list[Box]]] = {
     "pier.corner": _pier_corner,
     "window.deco_tall": _window_deco_tall,
     "entrance.deco_main": _entrance_deco_main,
+    "crown.stepped": _crown_stepped,
+    "bridge.gallery": _bridge_gallery,
+    "band.ring": _ring,
+    "parapet.ring": _ring,
 }
 
 

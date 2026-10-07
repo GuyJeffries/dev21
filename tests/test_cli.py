@@ -14,8 +14,11 @@ def test_resolve_then_build(tmp_path, capsys):
     assert main(["build", str(plan), "-o", str(tmp_path / "lib"), "--lod", "L3"]) == 0
     manifest = json.loads((tmp_path / "lib/manifest.json").read_text())
     assert manifest["lod"] == "L3"
-    assert len(manifest["instances"]) == 8  # the envelope boxes
-    assert "8 unique elements, 8 instances" in capsys.readouterr().out
+    placed = {r["id"].split("/")[1] for r in manifest["instances"]}  # podium and towers only
+    assert placed >= {"podium", "tower.central"} and all(
+        p.split(".")[0] in ("podium", "tower") for p in placed
+    )
+    assert f"{len(manifest['instances'])} instances" in capsys.readouterr().out
 
 
 def test_resolve_prints_plan_json_without_out(capsys):

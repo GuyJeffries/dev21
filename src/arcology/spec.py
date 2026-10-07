@@ -6,7 +6,6 @@ the seed picks one member.
 
 Loading is strict: unknown fields are errors (a typo must not be silently ignored),
 missing fields take the defaults below, and `schema` must name this version.
-The `secondary_towers` section is accepted now but used from Phase 2.
 """
 
 import json
@@ -114,10 +113,21 @@ class CentralTower:
 
 
 @dataclass(frozen=True)
-class SecondaryTowers:  # used from Phase 2
+class SecondaryTowers:
+    """Towers on the top podium tier, in lanes beside the central tower's faces.
+
+    They come in mirror pairs, plus towers on the north-south axis for odd counts;
+    `placement` sets which lane positions fill first. Each is bridged to the central tower.
+    """
+
     count: IntRange = _f(0, _range(integer=True, lo=0, hi=9))
     placement: str = _f("radial", _choice("radial", "axial", "corners"))
+    # Height above the podium as a share of the central tower's; later pairs step down.
     height_ratio: Range = _f((0.4, 0.7), _range(lo=0.05, hi=1))
+    size: Range = _f((0.7, 1.0), _range(lo=0.1, hi=1))  # share of the room their lane allows
+    gap: IntRange = _f((1, 3), _range(integer=True, lo=1, hi=10))  # bays from the central tower
+    # Where the bridges and transfer band sit, as a share of the lowest base section's floors.
+    bridge_level: Range = _f((0.45, 0.75), _range(lo=0.05, hi=0.95))
 
 
 @dataclass(frozen=True)

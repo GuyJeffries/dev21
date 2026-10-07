@@ -36,9 +36,10 @@ def test_seed_picks_different_buildings():
 
 def test_mass_ids_are_stable_paths():
     ids = [e.id for e in resolve(SPEC).elements if e.kind == "mass"]
-    assert ids == [f"arcology/podium/tier.{i}" for i in range(4)] + [
+    assert ids[:8] == [f"arcology/podium/tier.{i}" for i in range(4)] + [
         f"{TOWER}/section.{k}" for k in range(4)
     ]
+    assert all(i.startswith("arcology/tower.") and "/section." in i for i in ids[8:])
 
 
 def test_every_mass_has_a_core_four_corners_and_four_faces():
@@ -130,5 +131,6 @@ def test_entrance_too_wide_for_its_facade_is_named():
     narrow = _with(SPEC, "primary_mass", width=60)  # 10 bays wide
     narrow = _with(narrow, "central_tower", width=12, depth=12, setbacks=())
     narrow = _with(narrow, "facade", entrance_bays=15)
+    narrow = _with(narrow, "secondary_towers", count=0)
     with pytest.raises(ResolveError, match="tier.0/facade.south/entrance: .* won't fit"):
         resolve(narrow)

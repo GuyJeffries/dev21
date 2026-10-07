@@ -1,8 +1,9 @@
 """Review renders for pull requests (Blender + Pillow).
 
-Contact sheet: many seeds at L2, one camera fitted to the box enclosing every building, so
-relative size reads correctly across seeds. Detail sheet: close-ups at L0 of the entrance
-and the tower's base corner for a few seeds, where windows are big enough to judge.
+Contact sheet: many seeds at L2, one camera fitted to the box enclosing every building
+(spires included), so relative size reads correctly across seeds. Detail sheet: close-ups
+at L0 of the entrance, a bridge and the central crown for a few seeds, where windows and
+joints are big enough to judge.
 
 Every tile is rendered from the handover package (library + manifest) through the stand-in
 assembler, so the sheets also exercise that path. Output is compressed JPEG sized for limited
@@ -36,16 +37,26 @@ GROUND = (0.36, 0.38, 0.33)
 VIEW = (-1.0, 1.0, -0.45)
 
 
+def _all_bounds(plan: Plan):
+    """Bounds of everything in the plan, crowns and spires included."""
+    boxes = [element_bounds(e) for e in plan.elements]
+    return (
+        tuple(min(b[0][i] for b in boxes) for i in range(3)),
+        tuple(max(b[1][i] for b in boxes) for i in range(3)),
+    )
+
+
 def shared_camera(plans: list[Plan]) -> dict:
-    """One framing for the whole sheet: the box enclosing every plan's bounds."""
-    bounds = [plan_bounds(p) for p in plans]
+    """One framing for the whole sheet: the box enclosing everything in every plan."""
+    bounds = [_all_bounds(p) for p in plans]
     lo = tuple(min(b[0][i] for b in bounds) for i in range(3))
     hi = tuple(max(b[1][i] for b in bounds) for i in range(3))
     return {"lo": lo, "hi": hi, "view": VIEW, "lens": 35, "ground": max(hi[0] - lo[0], hi[2]) * 60}
 
 
 def detail_cameras(plan: Plan) -> dict[str, dict]:
-    """Close-up framings: the main entrance, and the south-east corner of the tower's base."""
+    """Close-up framings: the main entrance; the sister-tower cluster at its transfer floor
+    (else a pavilion bridge, else the tower's base corner); the central tower's crown."""
     bay, fh = plan.bay_width, plan.floor_height
     ground = (plan_bounds(plan)[1][0] - plan_bounds(plan)[0][0]) * 8
     entrance = next(e for e in plan.elements if e.kind == "entrance")
@@ -57,15 +68,40 @@ def detail_cameras(plan: Plan) -> dict[str, dict]:
             "view": (-0.35, 1.0, -0.12),
         }
     }
-    base = min(
-        (e for e in plan.elements if e.kind == "mass" and e.tags.get("role") == "tower"),
-        key=lambda e: e.floor,
+    bridges = [e for e in plan.elements if e.kind == "bridge"]
+    inner = [b for b in bridges if b.tags["from"].startswith("arcology/tower.central")]
+    if inner:
+        # The cluster round the transfer floor: central base, sister towers, bridges, bands.
+        datum = inner[0].translation[2]
+        boxes = [element_bounds(b) for b in inner]
+        boxes += [element_bounds(plan.element(b.tags["to"])) for b in inner]
+        lo = (min(b[0][0] for b in boxes), min(b[0][1] for b in boxes), datum - 5 * fh)
+        hi = (max(b[1][0] for b in boxes), max(b[1][1] for b in boxes), datum + 5 * fh)
+        views["cluster"] = {"lo": lo, "hi": hi, "view": (-0.6, 1.0, -0.55)}
+    elif bridges:
+        (bx0, by0, bz0), (bx1, by1, bz1) = element_bounds(bridges[0])
+        lo = (bx0 - 4 * bay, by0 - 4 * bay, bz0 - 3 * fh)
+        hi = (bx1 + 4 * bay, by1 + 4 * bay, bz1 + 3 * fh)
+        views["bridge"] = {"lo": lo, "hi": hi, "view": (-0.6, 1.0, -0.4)}
+    else:
+        base = min(
+            (e for e in plan.elements if e.kind == "mass" and e.tags.get("role") == "tower"),
+            key=lambda e: e.floor,
+        )
+        (tx0, ty0, tz0), (tx1, ty1, _) = element_bounds(base)
+        views["tower corner"] = {
+            "lo": (tx1 - 4 * bay, ty0, tz0),
+            "hi": (tx1, ty0 + 4 * bay, tz0 + 8 * fh),
+            "view": (-1.0, 1.0, -0.25),
+        }
+    crown = next(
+        e for e in plan.elements if e.kind == "crown" and e.tags["tower"].endswith("central")
     )
-    (tx0, ty0, tz0), (tx1, ty1, _) = element_bounds(base)
-    views["tower corner"] = {
-        "lo": (tx1 - 4 * bay, ty0, tz0),
-        "hi": (tx1, ty0 + 4 * bay, tz0 + 8 * fh),
-        "view": (-1.0, 1.0, -0.25),
+    (cx0, cy0, cz0), (cx1, cy1, cz1) = element_bounds(crown)
+    views["crown"] = {
+        "lo": (cx0, cy0, cz0 - 4 * fh),
+        "hi": (cx1, cy1, cz1),
+        "view": (-1.0, 1.0, -0.15),
     }
     return {name: {**v, "lens": 50, "ground": ground} for name, v in views.items()}
 
@@ -124,7 +160,9 @@ def render_tile(manifest_path: Path, image_path: Path, camera: dict, size, sampl
 
 
 def _label(result: dict) -> tuple[str, str]:
-    top = f"seed {result['seed']}  {result['height_m']:.0f} m  {result['floors']} floors"
+    towers = f"  +{result['towers']} towers" if result["towers"] else ""
+    height = f"{result['height_m']:.0f} m (tip {result['tip_m']:.0f})"
+    top = f"seed {result['seed']}  {height}  {result['floors']} fl{towers}"
     failed = failures(result)
     bottom = (
         "checks: FAIL " + ", ".join(failed)
@@ -156,17 +194,19 @@ def metrics_markdown(results: list[dict], lod: str) -> str:
     lines = [
         f"### Contact sheet: {len(results)} seeds, {lod}",
         "",
-        "| seed | height (m) | floors | podium | tower | footprint (m) | tower base (m) "
-        "| slenderness | windows | L0 meshes / copies | checks |",
-        "|---:|---:|---:|---:|---:|---|---|---:|---:|---:|---|",
+        "| seed | height / tip (m) | floors | podium | tower | towers | dominance | footprint (m) "
+        "| tower base (m) | windows | L0 meshes / copies | checks |",
+        "|---:|---:|---:|---:|---:|---:|---:|---|---|---:|---:|---|",
     ]
     for r in results:
         failed = failures(r)
         l0 = r["lod"]["L0"]
+        dominance = f"{r['dominance']:.2f}" if r["dominance"] else "–"
         lines.append(
-            f"| {r['seed']} | {r['height_m']:.0f} | {r['floors']} | {r['podium_floors']} "
-            f"| {r['tower_floors']} | {r['footprint_m'][0]:g} × {r['footprint_m'][1]:g} "
-            f"| {r['tower_base_m'][0]:g} × {r['tower_base_m'][1]:g} | {r['slenderness']} "
+            f"| {r['seed']} | {r['height_m']:.0f} / {r['tip_m']:.0f} | {r['floors']} "
+            f"| {r['podium_floors']} | {r['tower_floors']} | {r['towers']} | {dominance} "
+            f"| {r['footprint_m'][0]:g} × {r['footprint_m'][1]:g} "
+            f"| {r['tower_base_m'][0]:g} × {r['tower_base_m'][1]:g} "
             f"| {r['windows']:,} | {l0['unique']} / {l0['instances']:,} "
             f"| {'FAIL: ' + ', '.join(failed) if failed else 'ok'} |"
         )
@@ -209,26 +249,38 @@ def detail_sheet(
     seeds,
     out_dir: str | Path,
     *,
-    tile: tuple[int, int] = (480, 320),
+    tile: tuple[int, int] = (400, 300),
     samples: int = 24,
 ) -> None:
-    """Close-ups at L0 (entrance, tower base corner): one row per seed."""
+    """Close-ups at L0 (entrance, cluster or bridge, crown): one row per seed."""
     out_dir = Path(out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
-    labels, tiles = [], []
+    labels, tiles, columns = [], [], 0
     for seed in seeds:
         plan = resolve(replace(spec, seed=seed))
         seed_dir = out_dir / f"seed-{seed}"
         build_library(plan, seed_dir, "L0")
         entrance = next(e for e in plan.elements if e.kind == "entrance")
         bays, floors = entrance.tags["bays"], entrance.tags["floors"]
+        bridges = [e for e in plan.elements if e.kind == "bridge"]
+        crown = next(
+            e for e in plan.elements if e.kind == "crown" and e.tags["tower"].endswith("central")
+        )
         captions = {
             "entrance": f"{bays[1] - bays[0]} bays x {floors[1] - floors[0]} floors",
+            "cluster": f"{len(bridges)} bridges; sister towers meet at floor {bridges[0].floor}"
+            if bridges
+            else "",
+            "bridge": f"{len(bridges)} pavilion bridges",
             "tower corner": "south-east corner of the tower's base",
+            "crown": f"{crown.params.get('tiers', 0)} tiers, "
+            f"spire {crown.params.get('spire_height', 0):.0f} m",
         }
-        for name, camera in detail_cameras(plan).items():
+        cameras = detail_cameras(plan)
+        columns = max(columns, len(cameras))
+        for name, camera in cameras.items():
             path = seed_dir / f"{name.replace(' ', '_')}.png"
             render_tile(seed_dir / "manifest.json", path, camera, tile, samples)
             labels.append((f"seed {seed}  {name}", captions[name], False))
             tiles.append(path)
-    _montage(labels, tiles, out_dir / "detail_sheet.jpg", tile, 2)
+    _montage(labels, tiles, out_dir / "detail_sheet.jpg", tile, columns)

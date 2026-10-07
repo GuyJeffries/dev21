@@ -45,11 +45,11 @@ def main(argv: list[str] | None = None) -> int:
     s.add_argument("--cols", type=int, default=4)
     s.add_argument("--samples", type=int, default=16)
 
-    t = sub.add_parser("detail", help="spec -> close-ups (entrance, tower corner) at L0")
+    t = sub.add_parser("detail", help="spec -> close-ups (entrance, bridge, crown) at L0")
     t.add_argument("spec", type=Path)
     t.add_argument("--seeds", type=int, nargs="+", help="default: the first 3 golden seeds")
     t.add_argument("-o", "--out", type=Path, default=Path("build/detail"))
-    t.add_argument("--tile", type=_size, default=(480, 320), help="tile size, e.g. 480x320")
+    t.add_argument("--tile", type=_size, default=(400, 300), help="tile size, e.g. 400x300")
     t.add_argument("--samples", type=int, default=24)
 
     args = parser.parse_args(argv)
@@ -83,7 +83,7 @@ def main(argv: list[str] | None = None) -> int:
             detail_sheet(
                 load_spec(args.spec), seeds, args.out, tile=args.tile, samples=args.samples
             )
-            print(f"{args.out / 'detail_sheet.jpg'}: {len(seeds)} seeds x 2 views")
+            print(f"{args.out / 'detail_sheet.jpg'}: {len(seeds)} seeds, close-ups at L0")
             return 0
 
         results = contact_sheet(

@@ -90,9 +90,8 @@ def test_identical_elements_share_one_library_mesh(plan, tmp_path):
 
 def test_lod_filters_elements(plan, tmp_path):
     manifest = build_library(plan, tmp_path, "L3")
-    assert {r["id"] for r in manifest["instances"]} == {
-        e.id for e in plan.elements if e.kind == "mass"
-    }
+    expected = {e.id for e in plan.elements if e.kind in ("mass", "crown")}  # envelope + skyline
+    assert {r["id"] for r in manifest["instances"]} == expected
 
 
 def test_library_is_byte_for_byte_reproducible(plan, built, tmp_path):

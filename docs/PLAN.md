@@ -1,6 +1,6 @@
 # Arcology Generator: Project Plan
 
-**Status:** Phases 0 and 1 complete (2026-10-07); Phase 2 next.
+**Status:** Phases 0, 1 and 2 complete (2026-10-07); Phase 3 next.
 
 Revision 2 (2026-10-07). Revises the original proposal after review. This plan is a starting point, not the full
 scope: the objective right now is to get it working, with "exciting retro-futurist arcologies" as a later pass.
@@ -409,6 +409,11 @@ structural metrics pass.
 
 **Done when:** the building reads as one enormous building, not a tower with attachments, and the dominance,
 containment, connection and symmetry metrics pass.
+
+**As built:** sister towers in ring 0 (at most one per central face, so they can be substantial) bridge to the
+central tower on one shared transfer floor marked by stone bands; outer-ring pavilions fill the lower terraces,
+stay squat and bridge into the next tier's wall; every tower is crowned and only the central one takes the spire.
+The first attempt, three slim towers per lane, passed every check but read as fins stuck to the central tower.
 
 ### Phase 3: Facade grammar
 

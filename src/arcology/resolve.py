@@ -1,8 +1,10 @@
 """The grammar: spec -> resolved plan. Plain Python, no Blender.
 
-Phase 0 massing: a stepped podium and a central tower with setbacks. Phase 1 dresses each
-mass with a facade: stone piers on every bay line, an L-shaped piece at each corner, a
-window on every bay of every floor, and a centred main entrance on the podium's south face.
+Massing: a stepped podium and a central tower with setbacks (Phase 0), then secondary
+towers beside it (Phase 2, compose.py). Each mass is dressed with a facade (Phase 1): stone
+piers on every bay line, an L-shaped piece at each corner, a window on every bay of every
+floor, and a centred main entrance on the podium's south face. Composition elements
+(crowns, bridges, transfer bands, parapets) come last, from compose.py.
 
 Every value drawn from a spec range comes from the owning element's seed (see seeds.py),
 and every dimension sits on the grids: heights in whole floors, widths in whole bays.
@@ -13,14 +15,23 @@ wraps, the piers and the corners are L0-L2; windows and the entrance are L0-L1.
 
 from dataclasses import dataclass
 
+from arcology.compose import Tower, composition, secondary_towers
 from arcology.plan import Element, Plan
-from arcology.seeds import derive_seed, path_seed, rng
+from arcology.rules import (
+    DETAIL,
+    ROOT,
+    STRUCTURE,
+    ResolveError,
+    bays,
+    box_extent,
+    mass,
+    rnd,
+    sample,
+)
+from arcology.seeds import derive_seed, path_seed
 from arcology.spec import Spec
 
-ROOT = "arcology"
-DETAIL = ("L0", "L1")
-STRUCTURE = ("L0", "L1", "L2")
-ENVELOPE = ("L3",)
+__all__ = ["ResolveError", "resolve", "sample"]
 
 # Each facade's frame: rotation, and the direction of +u (left to right seen from outside).
 SIDES = {
@@ -46,48 +57,6 @@ ENTRANCE_APRON = 1.0  # plinth reach beyond the portal on each side
 ENTRANCE_CREST = 2.4  # stepped crest above the portal
 
 
-class ResolveError(ValueError):
-    """The spec's values, once drawn, can't form a valid building. Names the element."""
-
-
-def sample(value, seed: int, name: str, *, integer: bool = False):
-    """A spec value: fixed as given, or drawn from [min, max] by the decision `name`."""
-    if not isinstance(value, tuple):
-        return value
-    lo, hi = value
-    r = rng(seed, name)
-    return r.randint(lo, hi) if integer else r.uniform(float(lo), float(hi))
-
-
-def _bays(x: float, bay: float) -> float:
-    """`x` rounded to a whole number of bays, at least one."""
-    return max(1, round(x / bay)) * bay
-
-
-def _r(x: float) -> float:
-    return round(x, 4)
-
-
-def _box(w, d, h):
-    return ((_r(-w / 2), _r(-d / 2), 0.0), (_r(w / 2), _r(d / 2), _r(h)))
-
-
-def _mass(eid, seed, width, depth, floor, floors, fh, role) -> Element:
-    h = floors * fh
-    return Element(
-        id=eid,
-        kind="mass",
-        recipe="mass.box",
-        params={"width": _r(width), "depth": _r(depth), "height": _r(h)},
-        translation=(0.0, 0.0, _r(floor * fh)),
-        extent=_box(width, depth, h),
-        floor=floor,
-        seed=seed,
-        lod=ENVELOPE,
-        tags={"role": role},
-    )
-
-
 @dataclass(frozen=True)
 class FacadeSystem:
     """One building's facade dimensions, drawn once so every facade repeats them."""
@@ -103,24 +72,24 @@ class FacadeSystem:
     @property
     def depth(self) -> float:
         """Envelope to core: piers stand proud by pier_depth, windows sit behind that."""
-        return _r(self.pier_depth + self.recess + GLASS)
+        return rnd(self.pier_depth + self.recess + GLASS)
 
     def window(self) -> tuple[dict, tuple]:
         """A glazed channel filling the bay between two piers: spandrel below, glass above."""
         clear = self.bay - self.pier_width
         params = {
-            "width": _r(clear),
-            "height": _r(self.floor_height),
-            "front": _r(self.pier_depth),
-            "recess": _r(self.recess),
+            "width": rnd(clear),
+            "height": rnd(self.floor_height),
+            "front": rnd(self.pier_depth),
+            "recess": rnd(self.recess),
             "glass": GLASS,
-            "sill": _r(self.floor_height * (0.55 - 0.45 * self.density)),
+            "sill": rnd(self.floor_height * (0.55 - 0.45 * self.density)),
             "mullions": self.mullions,
         }
         nearest = self.pier_depth + min(self.recess / 2, self.recess - MULLION_DEPTH)
         extent = (
-            (_r(-clear / 2), _r(nearest), 0.0),
-            (_r(clear / 2), self.depth, _r(self.floor_height)),
+            (rnd(-clear / 2), rnd(nearest), 0.0),
+            (rnd(clear / 2), self.depth, rnd(self.floor_height)),
         )
         return params, extent
 
@@ -131,10 +100,10 @@ def _facade_system(spec: Spec) -> FacadeSystem:
     system = FacadeSystem(
         bay=f.bay_width,
         floor_height=spec.floor_height,
-        pier_width=_r(sample(f.pier_width, fs, "pier_width")),
+        pier_width=rnd(sample(f.pier_width, fs, "pier_width")),
         pier_depth=f.pier_depth,
         recess=f.window_recess,
-        density=_r(sample(f.density, fs, "density")),
+        density=rnd(sample(f.density, fs, "density")),
         mullions=sample(f.mullions, fs, "mullions", integer=True),
     )
     if system.pier_width >= system.bay / 2:
@@ -146,15 +115,15 @@ def _facade_system(spec: Spec) -> FacadeSystem:
 
 def _entrance_params(clear: float, floors: int, fac: FacadeSystem) -> tuple[dict, tuple]:
     height = floors * fac.floor_height
-    frame_width = _r(min(0.6, clear / (4 * ENTRANCE_FRAMES)))
+    frame_width = rnd(min(0.6, clear / (4 * ENTRANCE_FRAMES)))
     params = {
-        "width": _r(clear),
-        "height": _r(height),
+        "width": rnd(clear),
+        "height": rnd(height),
         "depth": fac.depth,
         "frames": ENTRANCE_FRAMES,
         "frame_step": ENTRANCE_FRAME_STEP,
         "frame_width": frame_width,
-        "door_height": _r(min(height * 0.5, 5.0)),
+        "door_height": rnd(min(height * 0.5, 5.0)),
         "mullions": max(2, round(clear / 1.5)),
         "plinth": ENTRANCE_PLINTH,
         "apron": ENTRANCE_APRON,
@@ -162,8 +131,8 @@ def _entrance_params(clear: float, floors: int, fac: FacadeSystem) -> tuple[dict
     }
     reach = ENTRANCE_FRAMES * ENTRANCE_FRAME_STEP + ENTRANCE_PLINTH
     extent = (
-        (_r(-clear / 2 - ENTRANCE_APRON), _r(-reach), 0.0),
-        (_r(clear / 2 + ENTRANCE_APRON), fac.depth, _r(height + ENTRANCE_CREST)),
+        (rnd(-clear / 2 - ENTRANCE_APRON), rnd(-reach), 0.0),
+        (rnd(clear / 2 + ENTRANCE_APRON), fac.depth, rnd(height + ENTRANCE_CREST)),
     )
     return params, extent
 
@@ -202,15 +171,16 @@ class _Face:
             "west": (-w / 2, 0),
         }[self.side]
         ux, uy = SIDES[self.side][1]
-        z = self.mass.translation[2] + (floor - self.mass.floor) * self.fac.floor_height
-        return (_r(ox + ux * u), _r(oy + uy * u), _r(z))
+        mx, my, mz = self.mass.translation
+        z = mz + (floor - self.mass.floor) * self.fac.floor_height
+        return (rnd(mx + ox + ux * u), rnd(my + oy + uy * u), rnd(z))
 
     def axis(self, name: str, start: int, count: int) -> dict:
         ux, uy = SIDES[self.side][1]
         step = (
             [0.0, 0.0, self.fac.floor_height]
             if name == "floor"
-            else [_r(ux * self.fac.bay), _r(uy * self.fac.bay), 0.0]
+            else [rnd(ux * self.fac.bay), rnd(uy * self.fac.bay), 0.0]
         )
         return {"name": name, "start": start, "count": count, "step": step, "digits": 3}
 
@@ -226,7 +196,13 @@ class _Face:
             floor=floor,
             seed=derive_seed(self.mass.seed, f"facade.{self.side}/{name}"),
             lod=lod,
-            tags={"facade": self.side, "building": ROOT, "role": kind, **extra.pop("tags", {})},
+            tags={
+                "facade": self.side,
+                "building": ROOT,
+                "role": kind,
+                "mass": self.mass.id,
+                **extra.pop("tags", {}),
+            },
             **extra,
         )
 
@@ -259,9 +235,9 @@ class _Face:
         if not lines:
             return []
         pw, dd = self.fac.pier_width, self.fac.depth
-        h = _r(self.mass.params["height"] - (from_floor - self.mass.floor) * self.fac.floor_height)
-        params = {"width": _r(pw), "depth": dd, "height": h}
-        extent = ((_r(-pw / 2), 0.0, 0.0), (_r(pw / 2), dd, h))
+        h = rnd(self.mass.params["height"] - (from_floor - self.mass.floor) * self.fac.floor_height)
+        params = {"width": rnd(pw), "depth": dd, "height": h}
+        extent = ((rnd(-pw / 2), 0.0, 0.0), (rnd(pw / 2), dd, h))
         u = -self.length / 2 + self.fac.bay * lines.start
         array = {"prefix": self.id, "axes": [self.axis("pier", lines.start, len(lines))]}
         return [
@@ -284,31 +260,35 @@ def _dress(mass: Element, fac: FacadeSystem, entrance: tuple[int, int] | None) -
             id=f"{mass.id}/core",
             kind="core",
             recipe="mass.box",
-            params={"width": _r(W - 2 * dd), "depth": _r(D - 2 * dd), "height": H},
+            params={"width": rnd(W - 2 * dd), "depth": rnd(D - 2 * dd), "height": H},
             translation=mass.translation,
-            extent=_box(W - 2 * dd, D - 2 * dd, H),
+            extent=box_extent(W - 2 * dd, D - 2 * dd, H),
             floor=f0,
             seed=derive_seed(mass.seed, "core"),
             lod=STRUCTURE,
-            tags={"role": mass.tags["role"]},
+            tags={"role": mass.tags["role"], "mass": mass.id},
         )
     ]
 
-    reach = _r(max(fac.pier_width / 2, dd))
+    reach = rnd(max(fac.pier_width / 2, dd))
     for name, (rotation, (sx, sy)) in CORNERS.items():
         out.append(
             Element(
                 id=f"{mass.id}/corner.{name}",
                 kind="pier",
                 recipe="pier.corner",
-                params={"arm": _r(fac.pier_width / 2), "depth": dd, "height": H},
-                translation=(_r(sx * W / 2), _r(sy * D / 2), mass.translation[2]),
+                params={"arm": rnd(fac.pier_width / 2), "depth": dd, "height": H},
+                translation=(
+                    rnd(mass.translation[0] + sx * W / 2),
+                    rnd(mass.translation[1] + sy * D / 2),
+                    mass.translation[2],
+                ),
                 rotation_z_deg=rotation,
                 extent=((-reach, 0.0, 0.0), (0.0, reach, H)),
                 floor=f0,
                 seed=derive_seed(mass.seed, f"corner.{name}"),
                 lod=STRUCTURE,
-                tags={"role": "corner"},
+                tags={"role": "corner", "mass": mass.id},
             )
         )
 
@@ -366,19 +346,17 @@ def _entrance(spec: Spec, tier0: Element, fac: FacadeSystem) -> tuple[int, int]:
     return bays, floors
 
 
-def resolve(spec: Spec) -> Plan:
+def _podium(spec: Spec) -> list[Element]:
+    """Stepped podium: each tier steps in by the same whole number of bays per side."""
     fh, bay = spec.floor_height, spec.facade.bay_width
-    masses: list[Element] = []
-
-    # Podium: each tier steps in by the same whole number of bays per side.
     pid = f"{ROOT}/podium"
     ps = path_seed(spec.seed, pid)
     pm = spec.primary_mass
-    base_w = _bays(sample(pm.width, ps, "width"), bay)
-    base_d = _bays(sample(pm.depth, ps, "depth"), bay)
+    base_w = bays(sample(pm.width, ps, "width"), bay)
+    base_d = bays(sample(pm.depth, ps, "depth"), bay)
     inset = sample(pm.tier_inset, ps, "tier_inset")
-    step_w, step_d = _bays(inset * base_w, bay), _bays(inset * base_d, bay)
-    floor = 0
+    step_w, step_d = bays(inset * base_w, bay), bays(inset * base_d, bay)
+    tiers, floor = [], 0
     for i, tier in enumerate(pm.tiers):
         tid = f"{pid}/tier.{i}"
         ts = derive_seed(ps, f"tier.{i}")
@@ -386,17 +364,22 @@ def resolve(spec: Spec) -> Plan:
         if w < bay or d < bay:
             raise ResolveError(f"{tid}: podium steps in to nothing; reduce tier_inset or tiers")
         floors = sample(tier, ts, "floors", integer=True)
-        masses.append(_mass(tid, ts, w, d, floor, floors, fh, "podium"))
+        tiers.append(mass(tid, ts, w, d, floor, floors, fh, {"role": "podium"}))
         floor += floors
-    top_w, top_d = w, d
+    return tiers
 
-    # Central tower: sits on the top tier with at least a bay of terrace on every side,
-    # and steps in at each setback floor.
+
+def _central(spec: Spec, top_tier: Element) -> tuple[Tower, float]:
+    """Central tower on the top tier, with a bay of terrace on every side, stepping in at
+    each setback floor. Returns the tower and its setback inset, which secondary towers share."""
+    fh, bay = spec.floor_height, spec.facade.bay_width
     cid = f"{ROOT}/tower.central"
     cs = path_seed(spec.seed, cid)
     ct = spec.central_tower
-    w = _bays(sample(ct.width, cs, "width"), bay)
-    d = _bays(sample(ct.depth, cs, "depth"), bay)
+    top_w, top_d = top_tier.params["width"], top_tier.params["depth"]
+    base_floor = top_tier.floor + round(top_tier.params["height"] / fh)
+    w = bays(sample(ct.width, cs, "width"), bay)
+    d = bays(sample(ct.depth, cs, "depth"), bay)
     floors = sample(ct.floors, cs, "floors", integer=True)
     inset = sample(ct.setback_inset, cs, "setback_inset")
     setbacks = [
@@ -413,21 +396,39 @@ def resolve(spec: Spec) -> Plan:
             "top podium tier with a bay of terrace on each side"
         )
     marks = [0, *setbacks, floors]
+    sections = []
     for k in range(len(marks) - 1):
         sid = f"{cid}/section.{k}"
         if k:
-            w, d = w - 2 * _bays(inset * w, bay), d - 2 * _bays(inset * d, bay)
+            w, d = w - 2 * bays(inset * w, bay), d - 2 * bays(inset * d, bay)
             if w < bay or d < bay:
                 raise ResolveError(f"{sid}: tower steps in to nothing; reduce setback_inset")
         sseed = derive_seed(cs, f"section.{k}")
-        start, count = floor + marks[k], marks[k + 1] - marks[k]
-        masses.append(_mass(sid, sseed, w, d, start, count, fh, "tower"))
+        start, count = base_floor + marks[k], marks[k + 1] - marks[k]
+        tags = {"role": "tower", "tower": cid, "stands_on": top_tier.id}
+        sections.append(mass(sid, sseed, w, d, start, count, fh, tags))
+    return Tower(cid, None, tuple(sections), cs), inset
 
-    # Facades, after massing so facade choices can never change the massing.
+
+def resolve(spec: Spec) -> Plan:
+    """Massing first (podium, central tower, secondary towers), then facades, then the
+    composition elements tying the towers together. Later steps read earlier decisions but
+    never change them."""
+    podium = _podium(spec)
+    central, inset = _central(spec, podium[-1])
+    towers = secondary_towers(spec, podium, central.sections, inset)
+
     fac = _facade_system(spec)
-    portal = _entrance(spec, masses[0], fac)
+    portal = _entrance(spec, podium[0], fac)
+    masses = [*podium, *central.sections, *(s for t in towers for s in t.sections)]
     elements: list[Element] = []
     for m in masses:
         elements.append(m)
-        elements.extend(_dress(m, fac, portal if m is masses[0] else None))
-    return Plan(seed=spec.seed, floor_height=fh, bay_width=bay, elements=tuple(elements))
+        elements.extend(_dress(m, fac, portal if m is podium[0] else None))
+    elements.extend(composition(spec, podium, central, towers))
+    return Plan(
+        seed=spec.seed,
+        floor_height=spec.floor_height,
+        bay_width=spec.facade.bay_width,
+        elements=tuple(elements),
+    )

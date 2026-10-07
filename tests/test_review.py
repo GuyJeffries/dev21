@@ -16,10 +16,25 @@ def test_shared_camera_encloses_every_plan(spec):
         assert all(camera["lo"][i] <= lo[i] and hi[i] <= camera["hi"][i] for i in range(3))
 
 
-def test_detail_cameras_frame_the_entrance(plan):
-    camera = detail_cameras(plan)["entrance"]
-    lo, hi = element_bounds(next(e for e in plan.elements if e.kind == "entrance"))
-    assert all(camera["lo"][i] <= lo[i] and hi[i] <= camera["hi"][i] for i in range(3))
+def test_detail_cameras_frame_the_entrance_and_crown(plan):
+    cameras = detail_cameras(plan)
+    for name, kind in (("entrance", "entrance"), ("crown", "crown")):
+        target = next(
+            e
+            for e in plan.elements
+            if e.kind == kind and "central" in e.tags.get("tower", "central")
+        )
+        lo, hi = element_bounds(target)
+        assert all(
+            cameras[name]["lo"][i] <= lo[i] and hi[i] <= cameras[name]["hi"][i] for i in range(3)
+        ), name
+
+
+def test_contact_camera_includes_the_spire(spec):
+    plan = resolve(replace(spec, seed=11))
+    camera = shared_camera([plan])
+    spire_top = max(element_bounds(e)[1][2] for e in plan.elements if e.kind == "crown")
+    assert camera["hi"][2] >= spire_top > plan_bounds(plan)[1][2]
 
 
 def test_contact_sheet_renders_tiles_and_metrics(spec, tmp_path):
@@ -37,9 +52,9 @@ def test_contact_sheet_renders_tiles_and_metrics(spec, tmp_path):
     assert [line.split("|")[1].strip() for line in table[4:]] == ["4", "5"]
 
 
-def test_detail_sheet_renders_two_close_ups_per_seed(spec, tmp_path):
+def test_detail_sheet_renders_three_close_ups_per_seed(spec, tmp_path):
     detail_sheet(spec, [6], tmp_path, tile=(96, 64), samples=1)
-    assert Image.open(tmp_path / "detail_sheet.jpg").size == (192, 64 + 34)
-    for name in ("entrance", "tower_corner"):
+    assert Image.open(tmp_path / "detail_sheet.jpg").size == (288, 64 + 34)
+    for name in ("entrance", "cluster", "crown"):
         tile = Image.open(tmp_path / f"seed-6/{name}.png").convert("L")
         assert ImageStat.Stat(tile).stddev[0] > 5, name
