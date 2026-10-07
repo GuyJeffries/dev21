@@ -1,0 +1,31 @@
+{
+  "schema": "arcology-spec/0",
+  "seed": 1,
+  "units": "m",
+  "floor_height": 4.0,
+  "style": {
+    "symmetry": "bilateral",
+    "dominant_axis": "vertical",
+    "hierarchy": "strong",
+    "ornament_density": 0.65,
+    "setback_strength": "high",
+    "repetition": "regular",
+    "termination": "stepped"
+  },
+  "primary_mass": {
+    "form": "stepped_podium",
+    "width": [480, 640],
+    "depth": [480, 640],
+    "tiers": [6, [5, 7], [4, 6], [3, 5]],
+    "tier_inset": [0.05, 0.09]
+  },
+  "central_tower": {
+    "width": [90, 140],
+    "depth": [90, 140],
+    "floors": [90, 120],
+    "setbacks": [[38, 46], [60, 70], [78, 88]],
+    "setback_inset": [0.06, 0.12]
+  },
+  "secondary_towers": { "count": 0, "placement": "radial", "height_ratio": [0.4, 0.7] },
+  "facade": { "bay_width": 6.0, "window": "deco_tall", "density": 0.8 }
+}

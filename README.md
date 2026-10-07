@@ -1,23 +1,30 @@
-# dev21
+# dev21: arcology generator
 
-Seeded procedural game assets generated with Blender, exported as glTF (`.glb`) for use in a game engine.
+Procedural Art Deco arcologies, described rather than modelled. A JSON spec is resolved by a plain-Python grammar
+into a plan of placed, identified elements; Blender builds each unique element once and assembles the scene from a
+placement manifest, which Unreal will later consume the same way. See [`docs/PLAN.md`](docs/PLAN.md).
 
-Blender runs headless as a Python module (`bpy` from PyPI), so no Blender install is needed.
+Blender runs headless as a Python module (`bpy` from PyPI); no Blender install is needed.
 
 ## Quick start
 
 ```bash
-uv sync                                   # Python 3.13 + bpy 5.2.2 (~400 MB wheel)
-uv run assetgen --seed 42 --out build/assets --preview build/preview.png
-./scripts/check.sh                        # lint, format check, tests
+uv sync                                                        # Python 3.13, bpy 5.2.2, Pillow
+uv run arcology sheet specs/default.json -o build/review       # contact sheet of 12 golden seeds
+uv run arcology resolve specs/default.json --seed 7 -o plan.json
+uv run arcology build plan.json -o build/seed-7 --lod L2
+./scripts/check.sh                                             # lint, format check, tests
 ```
 
-`build/assets/` gets one `.glb` per prop plus `manifest.json` (vertex/triangle counts and bounds per asset).
-`build/preview.png` is a Cycles render of the whole set.
+## Pipeline
 
-## Layout
+```
+spec (specs/*.json) → resolve (plain Python) → plan.json
+    → build (Blender) → elements/*.glb + manifest.json → assemble → scene → review renders
+```
 
-- `src/assetgen/generators.py`: seeded rock and tree generators, prop scattering
-- `src/assetgen/export.py`: glTF export and the manifest
-- `src/assetgen/preview.py`: preview render (Cycles, CPU)
-- `tests/`: pytest suite (determinism, budgets, origin convention, glTF validity, preview)
+## Status
+
+Phase 0 (foundations) is complete: schema v0, per-element seeds, a resolver for a stepped podium and a central tower
+with setbacks, structural metrics, element library and manifest, stand-in assembler, and contact sheets in CI.
+Next is Phase 1: massing primitives and the first facade (bays, one window recipe, one door recipe).

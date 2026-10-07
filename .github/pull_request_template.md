@@ -3,7 +3,9 @@
 ## How verified
 
 - [ ] `./scripts/check.sh` passes
-- [ ] Preview regenerated and looked at (`uv run assetgen --preview build/preview.png`)
-- Manifest changes (verts/tris per asset), if any:
+- [ ] Contact sheet regenerated and looked at (`uv run arcology sheet specs/default.json -o build/review`)
+- Metric changes for the golden seeds (heights, floors, checks), if any:
+
+## What the contact sheet shows
 
 ## Anything to look at closely

@@ -1,53 +1,65 @@
 # CLAUDE.md
 
-Procedural game assets generated headlessly with Blender's Python module (`bpy`) and exported as `.glb`.
-Development happens in Claude Code cloud sessions; the user reviews pull requests rather than running code locally,
-so every change needs evidence they can check without reading the diff (see "Verifying changes").
+Procedural Art Deco arcology generator. **Read `docs/PLAN.md` before starting work**: it sets the architecture,
+conventions and phases. Phase 0 (foundations) is done; Phase 1 (massing and first facade) is next.
 
-**Project direction: read `docs/PLAN.md` before starting work.** It is a procedural Art Deco arcology generator
-(spec → plain-Python resolver → Blender builder → manifest-driven assembly; Unreal later). The current `assetgen`
-rocks-and-trees package is a placeholder that proves the harness; Phase 0 of the plan replaces it.
-The user has limited bandwidth: keep work cloud-verifiable and review evidence small (contact sheets, metric tables).
+Development happens in Claude Code cloud sessions. The user reviews pull requests rather than running code, and has
+limited bandwidth: keep everything verifiable in the cloud and review evidence small (contact sheets, metric tables).
 
 ## Commands
 
 - Setup: `uv sync` (the SessionStart hook in `.claude/hooks/session-start.sh` does this in cloud sessions)
 - Check before every push: `./scripts/check.sh` (ruff lint, ruff format check, pytest; CI runs the same script)
-- Generate: `uv run assetgen --seed 42 --out build/assets --preview build/preview.png`
-- One test: `uv run pytest -q tests/test_generators.py::test_same_seed_gives_identical_geometry`
+- Contact sheet of the golden seeds: `uv run arcology sheet specs/default.json -o build/review`
+  (writes `contact_sheet.jpg`, `metrics.md`, `metrics.json`, and per-seed plan, library and tile)
+- Spec to plan, no Blender: `uv run arcology resolve specs/default.json --seed 7 -o plan.json`
+- Plan to element library + manifest: `uv run arcology build plan.json -o build/seed-7 --lod L2`
+
+## Layout (`src/arcology/`)
+
+| Module | Role | Blender? |
+|---|---|---|
+| `spec.py` | Schema v0: dataclasses, strict loading, ranges | No |
+| `seeds.py` | Per-element seeds from ID paths (blake2b) | No |
+| `plan.py` | Resolved plan: `Element`, `Plan`, JSON, bounds | No |
+| `resolve.py` | The grammar: spec → plan | No |
+| `metrics.py` | Structural checks on a plan | No |
+| `build.py` | Recipes; plan → element library (.glb) + placement manifest | Yes |
+| `assemble.py` | Stand-in assembler: manifest → instanced scene | Yes |
+| `review.py` | Contact sheets (Cycles CPU + Pillow), golden seeds | Yes |
 
 ## Conventions
 
-- Assets are built at the origin: centred in X/Y, base on z=0 (rocks sink `ROCK_SINK` of their height below it).
-  Engines place props by setting position, so baked offsets are bugs. Tests enforce this.
-- Output depends only on the seed. Generators take a `random.Random`; never use global `random` or time.
-  `test_export_is_byte_for_byte_reproducible` checks the `.glb` bytes.
-- Triangle budgets live in `TRI_BUDGET` (`src/assetgen/generators.py`). Raise them deliberately, not to make a test pass.
-- `build_set()` resets the whole Blender scene. Test fixtures return paths and manifests, never live `bpy` objects.
-- `manifest.json` has no timestamps or absolute paths, so its diff shows what a generator change did.
+- **The grammar stays plain Python.** `spec`, `seeds`, `plan`, `resolve` and `metrics` must never import `bpy`;
+  `test_pure_python.py` enforces it. Import Blender modules lazily from the CLI.
+- **Units:** metres, Z up. Heights are whole floors (`floor_height`); widths and depths are whole bays
+  (`facade.bay_width`). An element's translation is its base centre; library meshes are built centred at the origin.
+- **Seeds:** every random decision uses `rng(element_seed, "decision-name")`, with element seeds from
+  `path_seed`/`derive_seed`. Never use global `random`, `hash()`, or a stream shared between elements.
+  `test_changing_the_podium_does_not_reshuffle_the_tower` guards this.
+- **IDs:** stable role/position paths (`arcology/tower.central/section.2`), not generation order.
+- **Schema changes:** unknown fields are errors. A breaking change bumps `arcology-spec/N` and comes with a migration.
+  `test_seed_values_are_pinned` must never be edited to make it pass: changing seeds changes every building.
+- **Instancing:** a library entry per unique (recipe, params, LOD), and manifest rows per placement. Don't rely on
+  exporters for instancing.
 
 ## Verifying changes
 
-- Visual changes: regenerate the preview and look at the PNG (Read it) before pushing. Tests cannot judge looks;
-  the first preview of this project showed a cropped camera, overlapping props and a wrong sky colour.
-- Put in the PR: what changed, `./scripts/check.sh` result, manifest differences, and what the preview showed.
-- CI uploads `build/` (assets + preview) as the `assets-seed-42` artifact and writes a manifest table to the job summary.
+- Grammar or visual changes: run the contact sheet and look at it (Read the JPEG) before pushing. Tests cannot judge
+  whether it looks designed.
+- Put in the pull request: what changed, the `./scripts/check.sh` result, metric changes, and what the sheet showed.
+  Send the sheet to the user in the session too; CI keeps it in the `review` artifact and posts `metrics.md` to the
+  job summary.
 
 ## Environment notes
 
 - `bpy` wheels support exactly one Python minor: bpy 5.2.x needs Python 3.13. Bump them together.
 - Cloud sessions block download.blender.org; `bpy` comes from PyPI (about 400 MB, about 12 s cold install).
-- Render previews with Cycles on the CPU only. EEVEE needs a GPU/libEGL and kills the process (no exception) here.
-- "Draco is not available" / "MeshOptimizer is not available" ERROR lines on export are harmless: optional
-  glTF compression libraries missing from the PyPI wheel. We don't use them.
-- Blender 5 worlds already have a node tree; set the Background node's colour (`world.color` is ignored and
-  `World.use_nodes` is deprecated).
+- `import bpy` before `mathutils`; `mathutils` only exists once bpy is loaded.
+- Render with Cycles on the CPU only. EEVEE needs a GPU/libEGL and kills the process (no exception) here.
+- Cameras: set `clip_end` explicitly (the 100 m default cuts off buildings), and set the render resolution before
+  `camera_fit_coords`.
+- "Draco is not available" / "MeshOptimizer is not available" ERROR lines on glTF export are harmless.
+- Blender 5 worlds and materials already have node trees; set the node inputs (`World.use_nodes` is deprecated).
 - CI (GitHub Actions) apt-installs the X11/GL libraries `bpy` links against; see `.github/workflows/check.yml`.
-
-## Not yet in the repo
-
-Godot is planned to consume these `.glb` files. It was proven to work in a cloud session (Godot 4.7.2 built from
-source in about 22 min, since Godot's downloads and GitHub release assets are blocked by the session network
-policy; headless import, GDScript tests and Xvfb + Mesa llvmpipe screenshots all worked). Allowing `github.com`,
-`objects.githubusercontent.com` and `release-assets.githubusercontent.com` in the environment would let a setup
-script download official binaries instead.
+- Unreal and Houdini can't run in the cloud. Godot can, built from source (about 22 min); see `docs/PLAN.md` App. A.
