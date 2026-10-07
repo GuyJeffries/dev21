@@ -1,0 +1,46 @@
+name: check
+
+on:
+  push:
+  workflow_dispatch:
+
+jobs:
+  check:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+
+      - name: Install system libraries bpy links against
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            libgl1 libsm6 libice6 libx11-6 libxext6 libxfixes3 libxi6 libxrender1 libxkbcommon0
+
+      - name: Lint, format check, tests
+        run: ./scripts/check.sh
+
+      - name: Generate assets and preview
+        run: uv run assetgen --seed 42 --out build/assets --preview build/preview.png
+
+      - name: Upload assets and preview
+        uses: actions/upload-artifact@v4
+        with:
+          name: assets-seed-42
+          path: build/
+
+      - name: Write job summary
+        run: |
+          python3 - <<'PY' >> "$GITHUB_STEP_SUMMARY"
+          import json
+          m = json.load(open("build/assets/manifest.json"))
+          print(f"### Assets (seed {m['seed']})\n")
+          print("| asset | verts | tris | materials |\n|---|---:|---:|---:|")
+          for a in m["assets"]:
+              print(f"| {a['name']} | {a['verts']} | {a['tris']} | {a['materials']} |")
+          print("\nThe preview render and .glb files are in the `assets-seed-42` artifact.")
+          PY
