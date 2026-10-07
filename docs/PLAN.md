@@ -1,7 +1,8 @@
 # Arcology Generator: Project Plan
 
-**Status:** Phases 0 to 4 complete (2026-10-07). Next: scale layers and contrast (Phase 4b, proposed in
-[`LAYERS.md`](LAYERS.md)), then Phase 5.
+**Status:** Phases 0 to 4 complete (2026-10-07). Phase 4b (scale layers and contrast, [`LAYERS.md`](LAYERS.md)) under
+way: the layer tree, and courses with the luxury/functional programme split, are built; treatments next. Then
+Phase 5.
 
 Revision 2 (2026-10-07). Revises the original proposal after review. This plan is a starting point, not the full
 scope: the objective right now is to get it working, with "exciting retro-futurist arcologies" as a later pass.
@@ -485,6 +486,12 @@ which in turn needed pavilions held below the shortest sister. The optional loca
 early (fields, openings with spaces behind, recesses, giant orders), placed by composition; regions recorded in the
 plan as targets for later design language. Design and steps in [`LAYERS.md`](LAYERS.md).
 
+**Built so far:** step 1, every face a layer tree whose leaves generate their elements, drawn by the elevation sheet;
+step 2, courses (base, foot, runs, sky lobbies on one building-wide rhythm, bridge seams, capital) and every leaf
+graded luxury or functional by composition (`program.luxury`), so exceptions have places to go. Free placements
+(a building's tone, with large-layer gestures in 15% to 20% of buildings) are decided and come after the
+treatments.
+
 **Done when:** the buildings show events at several scales against a calm texture, and still read as Art Deco.
 
 ### Phase 5: Representation levels
@@ -567,6 +574,8 @@ Inside building 3 → looking through window → distinctive building 2 → cut 
 | Floor alignment | Elements sit on floor boundaries | 100% |
 | Cornices | Every mass has one cornice, following its outline, in its top floor | 100% |
 | Tiled | Every facade's layer tree has leaves that tile it exactly once (docs/LAYERS.md) | 100% |
+| Banded | Sky lobbies on the building's band rhythm; no run longer than a lobby could break | Pass |
+| Programmed | Every leaf graded luxury or functional, portals luxury; luxury 10-50% of the facade, ranked by standing, mirrored when bilateral | Pass |
 | Ornament hierarchy | No standing carries an ornament system more richly than the standing above it | Pass |
 | Style envelope | Slenderness, taper, podium share, spire share and ornament within the bounds in section 11 | Pass |
 

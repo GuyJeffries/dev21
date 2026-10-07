@@ -10,6 +10,7 @@ import json
 import math
 from collections import Counter
 
+from arcology.facade import MIN_RUN
 from arcology.plan import LODS, Element, Plan, Region, element_bounds, element_key, plan_bounds
 from arcology.rules import CENTRAL, HIERARCHY, in_outline, outline, standing
 
@@ -24,6 +25,11 @@ TAPER = (0.25, 0.95)  # its top section's narrower side over its base's: it step
 PODIUM_SHARE = (0.08, 0.45)  # podium floors as a share of all floors
 SPIRE_SHARE = 0.25  # at most this share of the central tower's height
 ORNAMENT_CAP = 2.5  # ornament pieces per facade cell, on any standing
+
+# The programme split (docs/LAYERS.md): enough luxury to contrast with, never so much that
+# nothing is plain; standings may cross by a little, as leaves are graded whole.
+LUXURY_SHARE = (0.1, 0.5)
+LUXURY_SLACK = 0.03
 
 
 def _whole(x: float, module: float) -> bool:
@@ -115,20 +121,97 @@ def _tiled(plan: Plan, masses: list[Element]) -> bool:
 
 
 def layers(plan: Plan) -> dict:
-    """The layer trees in numbers: regions per layer, and each leaf treatment's share of the
-    facade area (cells by role)."""
+    """The layer trees in numbers: regions per layer; each leaf treatment's share of the
+    facade area (cells by role) and each course's; and the luxury share of the facade area,
+    for the building and by standing."""
     regions = Counter(r.layer for r in plan.regions)
+    standing = {r.mass: r.tags["standing"] for r in plan.regions if r.layer == "face"}
     area: Counter = Counter()
+    courses: Counter = Counter()
+    by_standing: Counter = Counter()
+    lux: Counter = Counter()
     for r in plan.regions:
         if r.treatment:
+            size = (r.bays[1] - r.bays[0]) * (r.floors[1] - r.floors[0])
             kind = f"{r.treatment}.{r.tags['role']}" if r.treatment == "cells" else r.treatment
-            area[kind] += (r.bays[1] - r.bays[0]) * (r.floors[1] - r.floors[0])
+            area[kind] += size
+            courses[r.tags.get("course", "run")] += size
+            by_standing[standing.get(r.mass, "unknown")] += size
+            if r.tags.get("grade") == "luxury":
+                lux[standing.get(r.mass, "unknown")] += size
     total = sum(area.values()) or 1
+    luxury = {s: round(lux[s] / by_standing[s], 4) for s in sorted(by_standing)}
     return {
         "regions": dict(sorted(regions.items())),
         "leaves": sum(1 for r in plan.regions if r.treatment),
         "area": {k: round(v / total, 4) for k, v in sorted(area.items())},
+        "courses": {k: round(v / total, 4) for k, v in sorted(courses.items())},
+        "luxury": {"building": round(sum(lux.values()) / total, 4), **luxury},
     }
+
+
+MIRROR = {"east": "west", "west": "east", "se": "sw", "sw": "se", "ne": "nw", "nw": "ne"}
+
+
+def _mirror(name: str) -> str:
+    """A mass id or facade name mirrored across x = 0 (tower.east.mid <-> tower.west.mid,
+    se.east <-> sw.west)."""
+    return "/".join(".".join(MIRROR.get(t, t) for t in part.split(".")) for part in name.split("/"))
+
+
+def _mirrored_programme(plan: Plan) -> bool:
+    """Mirroring every leaf across x = 0 (the mirror mass and face, its bays counted from the
+    other end) gives the same leaves, graded the same. Read from the trees alone, so a
+    massing fault is left to the massing checks."""
+    width = {(r.mass, r.facade): r.bays[1] for r in plan.regions if r.layer == "face"}
+    plain: Counter = Counter()
+    mirrored: Counter = Counter()
+    for r in plan.regions:
+        n = width.get((r.mass, r.facade))
+        if not r.treatment or n is None:
+            continue
+        rest = (r.floors, r.treatment, r.tags.get("grade"))
+        plain[r.mass, r.facade, r.bays, *rest] += 1
+        mirrored[_mirror(r.mass), _mirror(r.facade), (n - r.bays[1], n - r.bays[0]), *rest] += 1
+    return plain == mirrored
+
+
+def _programmed(plan: Plan, stats: dict) -> bool:
+    """Every leaf is graded luxury or functional, every portal luxury; the building's luxury
+    share lies within LUXURY_SHARE; no standing carries more of it than the standing above
+    it down the RANKING (within LUXURY_SLACK); and on a bilateral style the grading is
+    mirror symmetric."""
+    leaves = [r for r in plan.regions if r.treatment]
+    if any(r.tags.get("grade") not in ("luxury", "functional") for r in leaves) or any(
+        r.treatment == "portal" and r.tags["grade"] != "luxury" for r in leaves
+    ):
+        return False
+    share = stats["luxury"]
+    ranked = [share[s] for s in RANKING if s in share]
+    return (
+        LUXURY_SHARE[0] <= share["building"] <= LUXURY_SHARE[1]
+        and all(b <= a + LUXURY_SLACK for a, b in zip(ranked, ranked[1:], strict=False))
+        and (plan.style.get("symmetry", "bilateral") != "bilateral" or _mirrored_programme(plan))
+    )
+
+
+def _banded(plan: Plan) -> bool:
+    """Sky lobbies keep the building's band rhythm: on every face that has one, each lobby
+    starts on anchor + j * (run + lobby) and is `lobby` floors tall, and no run is longer
+    than one a lobby couldn't break (a lobby needs MIN_RUN floors of run either side)."""
+    rhythm = {r.id: r.tags["rhythm"] for r in plan.regions if "rhythm" in r.tags}
+    for r in plan.regions:
+        face = f"{r.mass}/facade.{r.facade}"
+        if not r.treatment or face not in rhythm:
+            continue
+        anchor, run, lobby = rhythm[face]
+        period, (a, b) = run + lobby, r.floors
+        course = r.tags["course"]
+        if course == "lobby" and ((a - anchor) % period or b - a != lobby):
+            return False
+        if course == "run" and b - a > 2 * MIN_RUN + period + lobby - 2:
+            return False
+    return True
 
 
 def _facade_complete(plan: Plan, masses: list[Element]) -> bool:
@@ -430,6 +513,7 @@ def measure(plan: Plan) -> dict:
     tower_floors = floors(central)
     style = _style(plan, central, stacks[1:], tower_floors, floors(stacks[0]))
     density = ornament(plan, masses)
+    stats = layers(plan)
     dominance = round(tower_floors / max(secondary.values()), 2) if secondary else None
     checks = {
         "floor_aligned": all(_whole(e.translation[2], fh) for e in plan.elements)
@@ -451,6 +535,8 @@ def measure(plan: Plan) -> dict:
         "contained": all(_inside(b, a) for a, b in pairs),
         "facade_complete": _facade_complete(plan, masses),
         "tiled": _tiled(plan, masses),
+        "banded": _banded(plan),
+        "programmed": _programmed(plan, stats),
         "dressed": _dressed(plan, masses),
         "corniced": _corniced(plan, masses),
         "ornament_hierarchy": _ornament_hierarchy(plan, masses),
@@ -485,7 +571,7 @@ def measure(plan: Plan) -> dict:
         "style": style,
         "windows": sum(e.count for e in plan.elements if e.kind == "window"),
         "ornament": density,
-        "layers": layers(plan),
+        "layers": stats,
         "lod": lod_counts(plan),
         "checks": checks,
     }

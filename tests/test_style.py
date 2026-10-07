@@ -129,10 +129,13 @@ def test_horizontal_axis_bands_the_shaft():
     shaft = [e for e in plan.elements if e.kind == "window" and e.tags["zone"] == "shaft"]
     assert {e.recipe for e in shaft} == {"window.deco_band"}
     # Every banded pier carries one band per shaft floor it rises through, aligned with the
-    # spandrels of the windows beside it.
+    # spandrels of the windows beside it; sky lobbies break the bands.
+    lobbies = 0
     for pier in (e for e in plan.elements if e.recipe == "pier.banded"):
-        first, count = pier.params["bands"]
-        floors = {pier.floor + first + k for k in range(count)}
+        lobbies += len(pier.params["bands"]) > 1
+        floors = {
+            pier.floor + first + k for first, count in pier.params["bands"] for k in range(count)
+        }
         beside = {
             c.floor
             for e in shaft
@@ -141,6 +144,7 @@ def test_horizontal_axis_bands_the_shaft():
         }
         assert floors <= beside, pier.id
         assert pier.params["sill"] == shaft[0].params["sill"]
+    assert lobbies
 
 
 def test_spec_with_sets_a_dotted_path_and_validates():

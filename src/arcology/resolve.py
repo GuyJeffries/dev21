@@ -3,8 +3,9 @@
 Massing: a stepped podium and a central tower with setbacks (Phase 0), then secondary
 towers beside it (Phase 2, compose.py); towers may have notched corners (Phase 3). Each
 mass is then dressed with its facades (facade.py): corners, pilasters and piers, windows by
-zone, portals, a cornice and ornament. Composition elements (crowns, bridges, transfer
-bands, parapets) come last, from compose.py.
+course, portals, a cornice and ornament, with every face's layer tree graded luxury or
+functional. Composition elements (crowns, bridges, transfer bands, parapets) come last,
+from compose.py; the floors bridges cross at are massing decisions the facades read.
 
 Every value drawn from a spec range comes from the owning element's seed (see seeds.py),
 and every dimension sits on the grids: heights in whole floors, widths in whole bays.
@@ -16,7 +17,14 @@ wraps, the piers, corners and cornices are L0-L2; windows, portals and merlons a
 import math
 from dataclasses import asdict
 
-from arcology.compose import Tower, composition, secondary_towers
+from arcology.compose import (
+    BRIDGE_FLOORS,
+    Tower,
+    composition,
+    landing,
+    secondary_towers,
+    transfer_floor,
+)
 from arcology.facade import Portal, dress, entrance_size, facade_system, facade_variant
 from arcology.plan import Element, Plan, Region
 from arcology.rules import ROOT, SETBACK_STRENGTH, ResolveError, bays, mass, notch_for, sample
@@ -138,6 +146,22 @@ def resolve(spec: Spec) -> Plan:
     if spec.style.repetition == "varied":
         for t in towers:
             facades |= {s.id: facade_variant(spec, fac, t.seed) for s in t.sections}
+    # Courses: seams where bridges cross (the transfer floor on the central tower and the
+    # sister towers, with the band below it; each pavilion's landing, on it and the wall it
+    # bridges into), and sky lobbies on one rhythm counted from the transfer floor (or the
+    # central tower's foot), so lobbies line up across the building.
+    seams: dict[str, list[tuple[str, range]]] = {}
+    datum = transfer_floor(spec, central, towers)
+    if datum is not None:
+        transfer = range(datum - 1, datum + BRIDGE_FLOORS)
+        for t in (central, *(t for t in towers if t.slot.ring == 0)):
+            for s in t.sections:
+                seams.setdefault(s.id, []).append(("transfer", transfer))
+    for t in towers:
+        if t.slot.ring:
+            for m in (t.anchor, *t.sections):
+                seams.setdefault(m.id, []).append(("bridge", landing(spec, t)))
+    anchor = central.sections[0].floor if datum is None else datum
     tops = {t.sections[-1].id for t in (central, *towers)}
     masses = [*podium, *central.sections, *(s for t in towers for s in t.sections)]
     elements: list[Element] = []
@@ -150,6 +174,9 @@ def resolve(spec: Spec) -> Plan:
             portals=portals.get(m.id, ()),
             base=entrance[1] if m is podium[0] else 0,
             parapet=m.id not in tops,
+            foot=m is not podium[0],
+            seams=seams.get(m.id, ()),
+            anchor=anchor,
         )
         elements += dressed
         regions += tree

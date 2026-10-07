@@ -47,6 +47,11 @@
     "window_recess": 0.3,
     "mullions": [1, 3],
     "entrance_bays": [3, 5],
-    "entrance_floors": [2, 3]
+    "entrance_floors": [2, 3],
+    "band_run": [8, 15],
+    "lobby_floors": [1, 2]
+  },
+  "program": {
+    "luxury": [0.15, 0.35]
   }
 }

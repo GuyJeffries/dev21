@@ -19,12 +19,18 @@ from arcology.resolve import resolve
 from arcology.rules import outline
 from arcology.spec import Spec
 
-# Leaf fills: cells by role, then each other treatment. New treatments add a colour here.
+# Leaf fills: cells by role, strong where the leaf is luxury and pale where functional, then
+# each other treatment. New roles and treatments add a colour here.
 FILLS = {
-    "cells.base": (201, 180, 138),
-    "cells.shaft": (143, 160, 179),
-    "cells.capital": (222, 207, 168),
-    "portal": (184, 134, 11),
+    "luxury.shaft": (78, 102, 140),
+    "functional.shaft": (205, 213, 224),
+    "luxury.lobby": (40, 128, 100),
+    "functional.lobby": (196, 226, 212),
+    "luxury.base": (150, 105, 55),
+    "functional.base": (232, 216, 190),
+    "luxury.capital": (190, 150, 30),
+    "functional.capital": (240, 230, 190),
+    "portal": (180, 40, 40),
 }
 UNKNOWN = (255, 0, 255)  # a treatment without a colour shows up loudly
 MASS, CROWN, SPIRE, BRIDGE = (227, 222, 211), (214, 207, 192), (176, 141, 87), (120, 120, 128)
@@ -32,9 +38,15 @@ OUTLINE = {"face": ((40, 40, 40), 2), "panel": ((70, 70, 70), 1), "band": ((150,
 GROUND = (110, 110, 100)
 
 
+def leaf_kind(leaf: Region) -> str:
+    """The FILLS key a leaf is drawn with."""
+    if leaf.treatment == "cells":
+        return f"{leaf.tags.get('grade', 'functional')}.{leaf.tags['role']}"
+    return leaf.treatment
+
+
 def _fill(leaf: Region) -> tuple[int, int, int]:
-    kind = f"cells.{leaf.tags['role']}" if leaf.treatment == "cells" else leaf.treatment
-    return FILLS.get(kind, UNKNOWN)
+    return FILLS.get(leaf_kind(leaf), UNKNOWN)
 
 
 def _south_faces(m):
@@ -147,20 +159,31 @@ def _frame(plans: list[Plan]):
 
 
 def _caption(plan: Plan) -> str:
-    area = layers(plan)["area"]
-    parts = [f"{k.removeprefix('cells.')} {v:.0%}" for k, v in area.items() if v >= 0.005]
-    return f"seed {plan.seed}   " + "  ".join(parts)
+    stats = layers(plan)
+    parts = [
+        f"{k.removeprefix('cells.')} {v:.0%}"
+        for k, v in stats["area"].items()
+        if v >= 0.005 and k != "portal"
+    ]
+    return f"seed {plan.seed}   luxury {stats['luxury']['building']:.0%}   " + "  ".join(parts)
 
 
 def _legend(width: int, font) -> Image.Image:
+    """Each role as a pair of swatches, luxury then functional, then the other treatments."""
     strip = Image.new("RGB", (width, 26), "white")
     draw = ImageDraw.Draw(strip)
     x = 8
-    for name, colour in FILLS.items():
-        draw.rectangle((x, 7, x + 14, 19), fill=colour, outline=(60, 60, 60))
-        draw.text((x + 19, 6), name.removeprefix("cells."), fill="black", font=font)
-        x += 30 + int(draw.textlength(name, font=font))
-    draw.text((x + 10, 6), "outlines: face (heavy), panel, band (light)", fill="dimgray", font=font)
+    roles = dict.fromkeys(k.split(".", 1)[1] for k in FILLS if "." in k)
+    swatches = [(r, [FILLS[f"luxury.{r}"], FILLS[f"functional.{r}"]]) for r in roles]
+    swatches += [(k, [c]) for k, c in FILLS.items() if "." not in k]
+    for name, colours in swatches:
+        for colour in colours:
+            draw.rectangle((x, 7, x + 14, 19), fill=colour, outline=(60, 60, 60))
+            x += 15
+        draw.text((x + 4, 6), name, fill="black", font=font)
+        x += 18 + int(draw.textlength(name, font=font))
+    note = "strong: luxury, pale: functional; outlines: face (heavy), panel, band (light)"
+    draw.text((x + 10, 6), note, fill="dimgray", font=font)
     return strip
 
 

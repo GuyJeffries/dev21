@@ -161,6 +161,20 @@ class Facade:
     # Main entrance, centred on the podium's south facade.
     entrance_bays: IntRange = _f((3, 5), _range(integer=True, lo=1, hi=15))
     entrance_floors: IntRange = _f((2, 3), _range(integer=True, lo=1, hi=10))
+    # Band rhythm (docs/LAYERS.md): shafts break into runs of this many floors between sky
+    # lobbies this many floors tall, on one rhythm anchored at the transfer floor.
+    band_run: IntRange = _f((8, 15), _range(integer=True, lo=4, hi=60))
+    lobby_floors: IntRange = _f((1, 2), _range(integer=True, lo=1, hi=4))
+
+
+@dataclass(frozen=True)
+class Program:
+    """The programme split (docs/LAYERS.md): every facade region is luxury or functional.
+    Composition places the luxury (axis, base, seams, then higher floors), and exceptions
+    will go there; the functional rest stays calm, the ground the contrast reads against."""
+
+    # Share of the facade area that is luxury, before each mass's standing scales it.
+    luxury: Range = _f((0.15, 0.35), _range(lo=0, hi=1))
 
 
 @dataclass(frozen=True)
@@ -174,6 +188,7 @@ class Spec:
     central_tower: CentralTower = _section(CentralTower)
     secondary_towers: SecondaryTowers = _section(SecondaryTowers)
     facade: Facade = _section(Facade)
+    program: Program = _section(Program)
 
 
 def _load(cls, data, path):

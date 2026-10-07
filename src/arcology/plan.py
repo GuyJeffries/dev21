@@ -93,7 +93,7 @@ class Region:
     """A node of a facade's layer tree (docs/LAYERS.md): a rectangle of whole bays and floors
     on one face of a mass. The face is the root; it splits into panels (columns of bays) and
     bands (runs of floors). A leaf has a treatment, and the elements filling it carry its id
-    in their `region` tag. Regions hold no geometry: builders ignore them; checks, reviews and
+    in their `regions` tag. Regions hold no geometry: builders ignore them; checks, reviews and
     later rules read them as targets."""
 
     id: str  # stable path, e.g. ".../facade.south/panel.010/band.021"
@@ -104,7 +104,9 @@ class Region:
     bays: tuple[int, int]  # [first, end) along the face
     floors: tuple[int, int]  # [first, end), building floors
     treatment: str | None = None  # leaves only: "cells", "portal"
-    tags: dict = field(default_factory=dict)  # role, facing, size_m, height_m, standing
+    # size_m, height_m; faces: facing, standing, luxury, rhythm; panels: column; bands:
+    # course; leaves: column, course, role, grade ("luxury" or "functional")
+    tags: dict = field(default_factory=dict)
 
     def to_dict(self) -> dict:
         return {

@@ -21,13 +21,22 @@ every bay of every floor. Phase 3 fills the middle scale, largest first:
   switches on above a threshold, so ornament gathers where the hierarchy peaks.
 
 Every face is a layer tree (docs/LAYERS.md): the face splits into panels (columns of bays,
-at pilaster lines and portal edges) and bands (runs of floors, at zone boundaries), columns
+at pilaster lines and portal edges) and bands (runs of floors, at course boundaries), columns
 first on a vertical face and bands first on a horizontal one. Each leaf has a treatment and
 generates the elements that fill it: "cells" (windows, and channels at L2; leaves side by
 side on the same floors share one array) or "portal".
 Piers stand on every bay line except where a leaf that isn't cells spans it.
+
+Courses (Phase 4b step 2) give every mass the same vertical structure: base, a foot floor on
+the terrace it stands on, runs of shaft broken by sky lobbies on one building-wide rhythm
+(anchored at the transfer floor, so lobbies line up across the towers), seams where bridges
+cross, and the capital. Sky lobbies and the transfer course take base windows, a belt of
+masonry across the glass. Composition then grades every leaf luxury or functional: portals
+first, then by column (axis, edge, flank) and course (base, capital and seams before runs),
+up to the mass's share of the building's luxury, so later treatments know where to go.
 """
 
+import math
 from collections import defaultdict
 from dataclasses import dataclass, replace
 
@@ -72,6 +81,39 @@ STANDING_ORNAMENT = {"central": 1.0, "sister": 0.8, "podium": 0.7, "pavilion": 0
 CHEVRONS_AT, FLUTES_AT, MERLONS_AT = 0.4, 0.55, 0.6
 DOUBLE_CHEVRONS_AT = 0.6
 
+# Courses (docs/LAYERS.md section 5): every face splits into runs of floors, bottom up. The
+# base and capital are the zones; a foot floor faces the terrace a mass stands on; seams mark
+# where bridges cross (the transfer floor, a pavilion's landing); sky lobbies break the shaft
+# into runs on one rhythm. Each course's cells take a window role.
+FOOT_FLOORS = 1
+MIN_RUN = 4  # shaft floors at least either side of a sky lobby
+COURSE_ROLE = {
+    "base": "base",
+    "foot": "shaft",
+    "run": "shaft",
+    "lobby": "lobby",
+    "transfer": "lobby",
+    "bridge": "shaft",
+    "capital": "capital",
+}
+SEAMS = ("foot", "lobby", "transfer", "bridge", "capital")  # courses where masses or runs meet
+
+# The programme split: every leaf ranks by its column and course, and the highest ranked
+# take the luxury (higher floors first, then nearer the axis) up to the mass's share, which
+# its standing scales as it does ornament.
+COLUMN_RANK = {"axis": 4.0, "edge": 0.5, "flank": 0.0, "full": 0.0}
+COURSE_RANK = {
+    "base": 3.0,
+    "capital": 2.0,
+    "transfer": 2.0,
+    "lobby": 1.5,
+    "foot": 1.5,
+    "bridge": 1.5,
+    "run": 0.0,
+}
+STANDING_LUXURY = {"central": 1.3, "sister": 1.0, "podium": 0.9, "pavilion": 0.7}
+FACING_RANK = {"south": 3, "north": 2, "east": 1, "west": 1}  # the front first; notches last
+
 
 @dataclass(frozen=True)
 class PortalStyle:
@@ -114,6 +156,9 @@ class FacadeSystem:
     ornament: float  # style.ornament_density
     spread: float = 1.0  # share of the ornament differences between standings kept (hierarchy)
     axis: str = "vertical"  # style.dominant_axis: continuous piers, or continuous spandrel bands
+    run: int = 12  # band rhythm: floors in a shaft run between sky lobbies
+    lobby: int = 1  # and in a sky lobby
+    luxury: float = 0.25  # program.luxury: the building's luxury share of its facade area
 
     @property
     def depth(self) -> float:
@@ -156,7 +201,7 @@ class FacadeSystem:
                     "relief": CHEVRON_RELIEF,
                 }
                 nearest = min(nearest, panel - CHEVRON_RELIEF)
-        elif zone == "base":
+        elif zone in ("base", "lobby"):  # a sky lobby is a base in the air
             recipe = "window.deco_base"
             params |= {"sill": rnd(fh * BASE_SILL), "head": HEAD, "jamb": rnd(BASE_JAMB * clear)}
         else:
@@ -186,6 +231,9 @@ def facade_system(spec: Spec) -> FacadeSystem:
         ornament=spec.style.ornament_density,
         spread=HIERARCHY[spec.style.hierarchy].spread,
         axis=spec.style.dominant_axis,
+        run=sample(f.band_run, fs, "band_run", integer=True),
+        lobby=sample(f.lobby_floors, fs, "lobby_floors", integer=True),
+        luxury=rnd(sample(spec.program.luxury, path_seed(spec.seed, f"{ROOT}/program"), "luxury")),
     )
     if system.pier_width >= system.bay / 2:
         raise ResolveError(
@@ -195,9 +243,9 @@ def facade_system(spec: Spec) -> FacadeSystem:
 
 
 def facade_variant(spec: Spec, fac: FacadeSystem, seed: int) -> FacadeSystem:
-    """A tower group's own facade, for varied repetition: density, mullions and pilaster
-    rhythm drawn afresh within the spec's ranges; the bay, piers and depths stay the
-    building's, so the towers still share one grid."""
+    """A tower group's own facade, for varied repetition: density, mullions, pilaster rhythm
+    and band rhythm drawn afresh within the spec's ranges; the bay, piers, depths and lobby
+    height stay the building's, so the towers still share one grid."""
     fs = derive_seed(seed, "facade")
     f = spec.facade
     return replace(
@@ -205,6 +253,7 @@ def facade_variant(spec: Spec, fac: FacadeSystem, seed: int) -> FacadeSystem:
         density=rnd(sample(f.density, fs, "density")),
         mullions=sample(f.mullions, fs, "mullions", integer=True),
         pilaster_every=_pilasters(spec, fs),
+        run=sample(f.band_run, fs, "band_run", integer=True),
     )
 
 
@@ -238,6 +287,12 @@ def ornament(m: Element, fac: FacadeSystem) -> float:
     return rnd(fac.ornament * (1 - (1 - STANDING_ORNAMENT[standing(m)]) * fac.spread))
 
 
+def luxury(m: Element, fac: FacadeSystem) -> float:
+    """A mass's luxury share: the building's, scaled by its standing (less the weaker the
+    hierarchy), so the central tower carries the most."""
+    return rnd(min(1.0, fac.luxury * (1 + (STANDING_LUXURY[standing(m)] - 1) * fac.spread)))
+
+
 def chevrons(rho: float) -> int:
     return 0 if rho < CHEVRONS_AT else 1 if rho < DOUBLE_CHEVRONS_AT else 2
 
@@ -257,6 +312,57 @@ def capital_floors(floors: int, base: int, rho: float) -> int:
         return 0
     wanted = max(1, round(floors * CAPITAL_SHARE * (0.5 + rho)))
     return max(0, min(wanted, floors - base - 1))
+
+
+def _stretches(floors) -> list[range]:
+    """Ascending whole numbers grouped into consecutive ranges."""
+    out: list[range] = []
+    for f in floors:
+        if out and out[-1].stop == f:
+            out[-1] = range(out[-1].start, f + 1)
+        else:
+            out.append(range(f, f + 1))
+    return out
+
+
+def courses(
+    floors: range,
+    base: int,
+    capital: int,
+    *,
+    foot: bool = False,
+    seams=(),
+    rhythm: tuple[int, int, int] | None = None,
+) -> list[tuple[str, range]]:
+    """A mass's courses, bottom up, tiling `floors`: the base and capital zones (`base` and
+    `capital` floors), a foot floor if it stands on a terrace (`foot`), the `seams` given as
+    (kind, floors) where they fall between those, and in each stretch of shaft left, sky
+    lobbies on the `rhythm` (anchor floor, run, lobby): `lobby` floors at every anchor +
+    j * (run + lobby), wherever MIN_RUN shaft floors stay either side. The rest are runs.
+    One rhythm for every mass lines the lobbies up across the building."""
+    label: dict[int, str] = dict.fromkeys(floors[:base], "base")
+    label |= dict.fromkeys(floors[len(floors) - capital :], "capital")
+    shaft = [f for f in floors if f not in label]
+    if foot and len(shaft) > FOOT_FLOORS:
+        label |= dict.fromkeys(shaft[:FOOT_FLOORS], "foot")
+    for kind, seam in seams:
+        label |= {f: kind for f in seam if f in floors and f not in label}
+    if rhythm is not None:
+        anchor, run, lobby = rhythm
+        period = run + lobby
+        for stretch in _stretches(f for f in floors if f not in label):
+            p = anchor + math.ceil((stretch.start + MIN_RUN - anchor) / period) * period
+            while p + lobby + MIN_RUN <= stretch.stop:
+                label |= dict.fromkeys(range(p, p + lobby), "lobby")
+                p += period
+    out: list[tuple[str, range]] = []
+    for f in floors:
+        kind = label.get(f, "run")
+        if out and out[-1][0] == kind:
+            out[-1] = (kind, range(out[-1][1].start, f + 1))
+        else:
+            out.append((kind, range(f, f + 1)))
+    return out
 
 
 # Bay lines.
@@ -403,11 +509,13 @@ class _Face:
         )
         return [window, channel]
 
-    def piers(self, name: str, lines: range, floors: range, order: str, rho: float, shaft: range):
+    def piers(
+        self, name: str, lines: range, floors: range, order: str, rho: float, shaft: list[range]
+    ):
         """Piers on bay `lines` over `floors`: full-depth pilasters (fluted as ornament
         allows), or minor piers standing back between them. On a horizontal axis piers stand
-        back and, up the `shaft`, give way to glass behind the spandrel bands they carry
-        across, so each floor's windows read as one ribbon."""
+        back and, up each stretch of `shaft` floors, give way to glass behind the spandrel
+        bands they carry across, so each floor's windows read as one ribbon."""
         fac = self.fac
         pw, dd = fac.pier_width, fac.depth
         from_floor = floors.start
@@ -419,15 +527,19 @@ class _Face:
             params |= {"flutes": flutes(rho), "reed": REED}
         elif order == "pier" and fac.axis == "horizontal":
             front = params["front"] = fac.pier_depth
-            first = max(shaft.start, from_floor)
-            if shaft.stop > first:  # up the shaft: glass behind each floor's band
+            bands = [
+                [a - from_floor, b - a]
+                for r in shaft
+                if (a := max(r.start, from_floor)) < (b := min(r.stop, floors.stop))
+            ]
+            if bands:  # up the shaft: glass behind each floor's band
                 recipe, front = "pier.banded", BAND_FRONT
                 params |= {
                     "glass": rnd(fac.pier_depth + fac.recess),
                     "band": BAND_FRONT,
                     "floor_height": fac.floor_height,
                     "sill": rnd(fac.floor_height * (0.55 - 0.45 * fac.density)),
-                    "bands": [first - from_floor, shaft.stop - first],
+                    "bands": bands,
                 }
         elif order == "pier" and fac.pilaster_every:
             front = params["front"] = MINOR_SETBACK
@@ -608,21 +720,34 @@ def _cuts(edges, start: int, stop: int) -> list[range]:
     return [range(a, b) for a, b in zip(points, points[1:], strict=False)]
 
 
+def _column(bays: range, n: int) -> str:
+    """Where a column of bays stands on an n-bay face: the whole face, its axis (centred on
+    it), an edge (by a corner) or a flank (between)."""
+    if (bays.start, bays.stop) == (0, n):
+        return "full"
+    if bays.start + bays.stop == n:
+        return "axis"
+    return "edge" if bays.start == 0 or bays.stop == n else "flank"
+
+
 def layer_tree(
     face: _Face,
-    zones: list[tuple[str, range]],
+    plan: list[tuple[str, range]],
     portal: tuple[Portal, range, range] | None,
     major: set[int],
+    **face_tags,
 ) -> list[Region]:
     """A face's layer tree, parents before children (docs/LAYERS.md). Ids name panels by
     their first bay and bands by their first floor counted from the mass's foot, so a change
     below (a taller podium) doesn't rename a tower's regions.
 
     The face splits into panels at its pilaster lines and its portal's edges, and into bands
-    at its zone boundaries and the portal's top: columns first on a vertical face, so a
-    column can run the full height, and bands first on a horizontal one, so a band can run
-    the full width. Each leaf is "cells" (its role is its zone: base, shaft or capital) or
-    "portal" (the entrance or a door, `portal` being (portal, bays, floors))."""
+    at its courses (`plan`, from `courses`) and the portal's top: columns first on a
+    vertical face, so a column can run the full height, and bands first on a horizontal one,
+    so a band can run the full width. Panels carry their column (axis, flank, edge or full)
+    and bands their course. Each leaf carries both, and is "cells" (its role from its
+    course: base, shaft, lobby or capital) or "portal" (the entrance or a door, `portal`
+    being (portal, bays, floors)). The face carries `face_tags` too."""
     mass, fac = face.mass, face.fac
     n, f0 = face.bays, mass.floor
     top = f0 + round(mass.params["height"] / fac.floor_height)
@@ -630,7 +755,11 @@ def layer_tree(
     columns = {*(line for line in major if not gap.start < line < gap.stop)}
     if portal:
         columns |= {gap.start, gap.stop}
-    floor_cuts = {z.start for _, z in zones} | ({low.stop} if portal else set())
+    course_cuts = {r.start for _, r in plan}
+    floor_cuts = course_cuts | ({low.stop} if portal else set())
+
+    def course(floors: range) -> str:
+        return next(kind for kind, r in plan if r.start <= floors.start < r.stop)
 
     def node(rid, layer, parent, bays, floors, treatment=None, role=None, **extra) -> Region:
         tags = {
@@ -653,10 +782,12 @@ def layer_tree(
         )
 
     def leaf(rid, layer, parent, bays, floors) -> Region:
+        where = {"course": course(floors), "column": _column(bays, n)}
         if portal and bays.start >= gap.start and bays.stop <= gap.stop and floors.stop <= low.stop:
-            return node(rid, layer, parent, bays, floors, "portal", "portal")
-        role = next(z for z, r in zones if r.start <= floors.start < r.stop)
-        return node(rid, layer, parent, bays, floors, "cells", role)
+            return node(rid, layer, parent, bays, floors, "portal", "portal", **where)
+        return node(
+            rid, layer, parent, bays, floors, "cells", COURSE_ROLE[where["course"]], **where
+        )
 
     tree = [
         node(
@@ -667,39 +798,65 @@ def layer_tree(
             range(f0, top),
             facing=face.edge.side,
             standing=standing(mass),
+            **face_tags,
         )
     ]
     if fac.axis == "horizontal":
         for floors in _cuts(floor_cuts, f0, top):
-            band = node(
-                f"{face.id}/band.{floors.start - f0:03d}", "band", face.id, range(n), floors
-            )
             split = portal and floors.stop <= low.stop
             panels = _cuts(columns, 0, n) if split else [range(n)]
+            bid = f"{face.id}/band.{floors.start - f0:03d}"
             if len(panels) == 1:  # the band is the leaf
-                tree.append(leaf(band.id, "band", face.id, range(n), floors))
+                tree.append(leaf(bid, "band", face.id, range(n), floors))
                 continue
-            tree.append(band)
+            tree.append(node(bid, "band", face.id, range(n), floors, course=course(floors)))
             for bays in panels:
-                tree.append(
-                    leaf(f"{band.id}/panel.{bays.start:03d}", "panel", band.id, bays, floors)
-                )
+                tree.append(leaf(f"{bid}/panel.{bays.start:03d}", "panel", bid, bays, floors))
     else:
         for bays in _cuts(columns, 0, n):
-            panel = node(
-                f"{face.id}/panel.{bays.start:03d}", "panel", face.id, bays, range(f0, top)
-            )
-            tree.append(panel)
-            cuts = (
-                floor_cuts
-                if bays.start >= gap.start and bays.stop <= gap.stop
-                else {z.start for _, z in zones}
-            )
-            for floors in _cuts(cuts, f0, top):
-                tree.append(
-                    leaf(f"{panel.id}/band.{floors.start - f0:03d}", "band", panel.id, bays, floors)
-                )
+            pid = f"{face.id}/panel.{bays.start:03d}"
+            tree.append(node(pid, "panel", face.id, bays, range(f0, top), column=_column(bays, n)))
+            inside = bays.start >= gap.start and bays.stop <= gap.stop
+            for floors in _cuts(floor_cuts if inside else course_cuts, f0, top):
+                tree.append(leaf(f"{pid}/band.{floors.start - f0:03d}", "band", pid, bays, floors))
     return tree
+
+
+def _area(r: Region) -> int:
+    return (r.bays[1] - r.bays[0]) * (r.floors[1] - r.floors[0])
+
+
+def programme(regions: list[Region], target: float) -> list[Region]:
+    """Grades every leaf of one mass's faces luxury or functional (a `grade` tag): portals
+    always luxury, then leaves in order of rank (COLUMN_RANK + COURSE_RANK), higher floors
+    first, then nearer their face's axis, then the front face first (FACING_RANK), each
+    taken while it brings the luxury area nearer `target` (a share of the mass's facade
+    area). Leaves alike in all of these are graded together, so mirror images, and east and
+    west faces, always match."""
+    width = {r.facade: r.bays[1] for r in regions if r.layer == "face"}
+    leaves = [r for r in regions if r.treatment]
+    groups: dict[tuple, list[Region]] = defaultdict(list)
+    for r in leaves:
+        if r.treatment == "portal":
+            key: tuple = (math.inf,)
+        else:
+            rank = COLUMN_RANK[r.tags["column"]] + COURSE_RANK[r.tags["course"]]
+            offset = abs(r.bays[0] + r.bays[1] - width[r.facade])
+            key = (rank, *r.floors, -offset, FACING_RANK.get(r.facade, 0))
+        groups[key].append(r)
+    wanted = target * sum(map(_area, leaves))
+    chosen, area = set(), 0
+    for key in sorted(groups, reverse=True):
+        size = sum(map(_area, groups[key]))
+        if key[0] == math.inf or area + size / 2 < wanted:
+            chosen |= {r.id for r in groups[key]}
+            area += size
+    return [
+        replace(r, tags={**r.tags, "grade": "luxury" if r.id in chosen else "functional"})
+        if r.treatment
+        else r
+        for r in regions
+    ]
 
 
 def _runs(floors: range, blocked: list[range]) -> list[range]:
@@ -721,28 +878,34 @@ def dress(
     portals: tuple[Portal, ...] = (),
     base: int = 0,
     parapet: bool = False,
+    foot: bool = False,
+    seams=(),
+    anchor: int | None = None,
 ) -> tuple[list[Element], list[Region]]:
     """Core, corners, piers, windows, portals and cornice for one mass; merlons too if it
     has a parapet (it is a terrace, not a tower top) and ornament allows. Returns the
-    elements and every face's layer tree.
+    elements and every face's layer tree, each leaf graded luxury or functional.
 
-    `base` is the number of floors in the base zone (the ground tier's, matching the entrance).
+    `base` is the number of floors in the base zone (the ground tier's, matching the
+    entrance); `foot`, `seams` and `anchor` (the floor the building's band rhythm counts
+    from, None for no sky lobbies) set the courses (see `courses`).
     """
     rho = ornament(mass, fac)
     fh, f0, k = fac.floor_height, mass.floor, fac.pilaster_every
     floors = round(mass.params["height"] / fh)
     top = f0 + floors
-    capital = capital_floors(floors, base, rho)
-    zones = [
-        (role, r)
-        for role, r in (
-            ("base", range(f0, f0 + base)),
-            ("shaft", range(f0 + base, top - capital)),
-            ("capital", range(top - capital, top)),
-        )
-        if r
-    ]
-    shaft = range(f0 + base, top - capital)
+    rhythm = None if anchor is None else (anchor, fac.run, fac.lobby)
+    plan = courses(
+        range(f0, top),
+        base,
+        capital_floors(floors, base, rho),
+        foot=foot,
+        seams=seams,
+        rhythm=rhythm,
+    )
+    shaft = _stretches(f for kind, r in plan if COURSE_ROLE[kind] == "shaft" for f in r)
+    target = luxury(mass, fac)
+    face_tags = {"luxury": target} | ({"rhythm": list(rhythm)} if rhythm else {})
     out, regions = _core_and_corners(mass, fac), []
     for edge in outline(mass.params["width"], mass.params["depth"], mass.params.get("notch", 0.0)):
         face = _Face(mass, edge, fac)
@@ -754,7 +917,7 @@ def dress(
             a = (n - pb) // 2
             placed = (portal, range(a, a + pb), range(f0, f0 + portal.floors))
         major = pilaster_lines(n, k)
-        tree = layer_tree(face, zones, placed, major)
+        tree = layer_tree(face, plan, placed, major, **face_tags)
         regions += tree
         leaves = [r for r in tree if r.treatment]
 
@@ -804,4 +967,4 @@ def dress(
             for i, run in enumerate(progressions(major, k)):
                 out += face.merlons(f"merlons.{i}", run, top)
     out.append(_cornice(mass, fac, rho))
-    return out, regions
+    return out, programme(regions, target)

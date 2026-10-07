@@ -432,31 +432,42 @@ def composition(spec: Spec, podium, central: Tower, towers: list[Tower]) -> list
             out.append(_parapet(m, fh))
 
     # Ring 0: every bridge to the central tower on one shared floor, with a band below.
-    # The band clears the doors at the towers' feet (and their crests), and the bridges
-    # clear the cornices at the tops of the base sections by a floor.
-    inner = [t for t in towers if t.slot.ring == 0]
-    if inner:
-        cluster = [central, *inner]
-        lowest = min(round(t.sections[0].params["height"] / fh) for t in cluster)
-        highest = lowest - BRIDGE_FLOORS - 1
-        if highest < BRIDGE_DATUM_MIN:
-            raise ResolveError(f"{TOWERS}: {lowest}-floor base sections are too short for bridges")
-        level = sample(
-            spec.secondary_towers.bridge_level, path_seed(spec.seed, TOWERS), "bridge_level"
-        )
-        datum = central.sections[0].floor + min(
-            highest, max(BRIDGE_DATUM_MIN, round(level * lowest))
-        )
-        out += [_band(spec, t, datum - 1) for t in cluster]
+    datum = transfer_floor(spec, central, towers)
+    if datum is not None:
+        inner = [t for t in towers if t.slot.ring == 0]
+        out += [_band(spec, t, datum - 1) for t in [central, *inner]]
         out += [_bridge(spec, t, datum) for t in inner]
-
-    # Outer rings: into the wall of the tier above, halfway up it, at least a floor clear of
-    # the terrace (for the keel) and of the cornice; a single floor tall on low walls.
     for t in towers:
         if t.slot.ring:
-            wall = round(t.anchor.params["height"] / fh)
-            floors = min(BRIDGE_FLOORS, wall - 2)
-            if floors < 1:
-                raise ResolveError(f"{t.anchor.id}: {wall} floors is too low to bridge into")
-            out.append(_bridge(spec, t, t.anchor.floor + (wall - floors) // 2, floors))
+            floors = landing(spec, t)
+            out.append(_bridge(spec, t, floors.start, len(floors)))
     return out
+
+
+def transfer_floor(spec: Spec, central: Tower, towers: list[Tower]) -> int | None:
+    """The floor ring 0's bridges cross at, on the central tower and every sister tower
+    (None without sister towers). The transfer band below it clears the doors at the
+    towers' feet (and their crests), and the bridges clear the cornices at the tops of the
+    base sections by a floor. A massing decision, so facades can read it."""
+    inner = [t for t in towers if t.slot.ring == 0]
+    if not inner:
+        return None
+    fh = spec.floor_height
+    lowest = min(round(t.sections[0].params["height"] / fh) for t in [central, *inner])
+    highest = lowest - BRIDGE_FLOORS - 1
+    if highest < BRIDGE_DATUM_MIN:
+        raise ResolveError(f"{TOWERS}: {lowest}-floor base sections are too short for bridges")
+    level = sample(spec.secondary_towers.bridge_level, path_seed(spec.seed, TOWERS), "bridge_level")
+    return central.sections[0].floor + min(highest, max(BRIDGE_DATUM_MIN, round(level * lowest)))
+
+
+def landing(spec: Spec, tower: Tower) -> range:
+    """The floors an outer-ring pavilion's bridge crosses at, into the wall of the tier
+    above: halfway up it, at least a floor clear of the terrace (for the keel) and of the
+    cornice; a single floor tall on low walls."""
+    wall = round(tower.anchor.params["height"] / spec.floor_height)
+    floors = min(BRIDGE_FLOORS, wall - 2)
+    if floors < 1:
+        raise ResolveError(f"{tower.anchor.id}: {wall} floors is too low to bridge into")
+    start = tower.anchor.floor + (wall - floors) // 2
+    return range(start, start + floors)

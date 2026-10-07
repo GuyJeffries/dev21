@@ -3,8 +3,9 @@
 Procedural Art Deco arcology generator. **Read `docs/PLAN.md` before starting work**: it sets the architecture,
 conventions and phases. Phases 0 (foundations), 1 (massing and first facade), 2 (arcology composition), 3
 (facade grammar: notched shapes, pilasters, zones, cornices, doors, ornament) and 4 (style and variation: every
-style setting wired, style envelope, sweep and batch sheets) are done. Next is Phase 4b, scale layers and contrast,
-proposed in `docs/LAYERS.md` (read it too), then Phase 5 (representation levels).
+style setting wired, style envelope, sweep and batch sheets) are done. Phase 4b, scale layers and contrast
+(`docs/LAYERS.md`, read it too), is under way: steps 1 (layer tree) and 2 (courses, luxury/functional grades) are
+built, step 3 (treatments) is next. Then Phase 5 (representation levels).
 
 Development happens in Claude Code cloud sessions. The user reviews pull requests rather than running code, and has
 limited bandwidth: keep everything verifiable in the cloud and review evidence small (contact sheets, metric tables).
@@ -38,7 +39,7 @@ limited bandwidth: keep everything verifiable in the cloud and review evidence s
 | `rules.py` | Shared primitives: sampling, grid snapping, mass elements, outlines (`outline`, notches), LOD sets | No |
 | `resolve.py` | The grammar's order: podium, central tower, secondary towers, facades, composition | No |
 | `compose.py` | Composition: secondary towers in rings, bridges, transfer bands, crowns, parapets | No |
-| `facade.py` | Facades: layer trees, corners, pilasters and piers, windows by zone, portals, cornices, merlons | No |
+| `facade.py` | Facades: layer trees, courses, grades, corners, pilasters and piers, windows, portals, cornices, merlons | No |
 | `metrics.py` | Structural checks (massing, facades, symmetry, dominance, bridges, crowns, clearance), style envelope | No |
 | `build.py` | Box-built recipes; plan → element library (.glb) + placement manifest | Yes |
 | `assemble.py` | Stand-in assembler: manifest → instanced scene (expands arrays) | Yes |
@@ -62,6 +63,12 @@ limited bandwidth: keep everything verifiable in the cloud and review evidence s
   first floor counted from the mass's foot. Leaves carry a treatment and generate the elements that fill them;
   those elements list their leaves in a `regions` tag. Add a facade feature as a treatment of a leaf, not as
   elements placed beside the tree, so `tiled` and the elevation sheet see it.
+- **Courses and grades:** bands follow courses (`facade.courses`: base, foot, run, lobby, transfer, bridge,
+  capital); sky lobbies keep one building-wide rhythm anchored at the transfer floor (`banded`). Every leaf has a
+  `column` (axis, edge, flank, full) and a `grade` (luxury or functional) from `facade.programme`; place exceptions
+  in luxury leaves and on seams, never by position alone, and keep functional leaves calm. The plan's reserved
+  `program` tag stays for uses (dining, hall). Free placements (a building's tone) are decided in docs/LAYERS.md
+  section 5 but not built.
 - **Repetition:** windows, piers and merlons are array elements; an axis may have a `stride` (pilasters every k
   bay lines). A copy's id comes from the array's `prefix` plus its facade-wide grid position
   (`.../facade.south/bay.007/floor.012`, `.../facade.south/pier.012`), never from how the grid was split into

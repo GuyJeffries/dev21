@@ -1,5 +1,6 @@
-"""The layer tree (docs/LAYERS.md, step 1): every face splits into panels and bands, its
-leaves tile it, and the elements filling a leaf name it."""
+"""The layer tree (docs/LAYERS.md): every face splits into panels and bands, its leaves tile
+it, and the elements filling a leaf name it (step 1); bands follow courses on one rhythm, and
+every leaf is graded luxury or functional by composition (step 2)."""
 
 import json
 from dataclasses import replace
@@ -8,12 +9,13 @@ from pathlib import Path
 import pytest
 from PIL import Image
 
-from arcology.elevation import FILLS, elevation_sheet
-from arcology.facade import facade_system, pilaster_lines
+from arcology.elevation import FILLS, elevation_sheet, leaf_kind
+from arcology.facade import MIN_RUN, courses, facade_system, pilaster_lines
 from arcology.metrics import failures, layers, measure
 from arcology.plan import Plan, instances
 from arcology.resolve import resolve
-from arcology.spec import load_spec
+from arcology.rules import CENTRAL
+from arcology.spec import load_spec, spec_with
 
 SPEC = load_spec(Path(__file__).parents[1] / "specs/default.json")
 PLAN = resolve(SPEC)
@@ -134,10 +136,132 @@ def test_elevation_sheet_draws_every_leaf_in_a_known_colour(tmp_path):
     plans = elevation_sheet(SPEC, [4, 5], tmp_path, tile=(120, 100), cols=2)
     sheet = Image.open(tmp_path / "elevation_sheet.jpg")
     assert sheet.size[0] == 240 and sheet.size[1] > 100
-    kinds = {
-        f"cells.{r.tags['role']}" if r.treatment == "cells" else r.treatment
-        for p in plans
-        for r in p.regions
-        if r.treatment
-    }
+    kinds = {leaf_kind(r) for p in plans for r in p.regions if r.treatment}
     assert kinds <= set(FILLS)
+    assert {"luxury.shaft", "functional.shaft", "luxury.lobby", "portal"} <= kinds
+
+
+def test_courses_tile_the_floors_with_lobbies_on_the_rhythm():
+    plan = courses(
+        range(100, 160),
+        0,
+        3,
+        foot=True,
+        seams=[("transfer", range(118, 121))],
+        rhythm=(119, 10, 2),
+    )
+    assert [f for _, r in plan for f in r] == list(range(100, 160))
+    assert plan[0] == ("foot", range(100, 101)) and plan[-1] == ("capital", range(157, 160))
+    assert ("transfer", range(118, 121)) in plan
+    lobbies = [r for kind, r in plan if kind == "lobby"]
+    assert lobbies == [range(107, 109), range(131, 133), range(143, 145)]  # 119 + 12j
+    for i, (kind, _) in enumerate(plan):
+        if kind == "lobby":  # with MIN_RUN floors of run either side
+            for _, r in (plan[i - 1], plan[i + 1]):
+                assert len(r) >= MIN_RUN
+    # Too short for a lobby: base, run, capital.
+    assert courses(range(6), 2, 1, rhythm=(0, 8, 1)) == [
+        ("base", range(2)),
+        ("run", range(2, 5)),
+        ("capital", range(5, 6)),
+    ]
+
+
+def _datum(plan):
+    return next(
+        e.floor
+        for e in plan.elements
+        if e.kind == "bridge" and e.tags["from"] == f"{CENTRAL}/section.0"
+    )
+
+
+def test_lobbies_line_up_across_the_building_on_the_transfer_floor():
+    datum, fac = _datum(PLAN), facade_system(SPEC)
+    faces = [r for r in PLAN.regions if r.layer == "face"]
+    assert {tuple(r.tags["rhythm"]) for r in faces} == {(datum, fac.run, fac.lobby)}
+    # The transfer course runs round the central tower and every sister tower, from the
+    # band under the bridges to their top.
+    transfer = {r.mass for r in PLAN.regions if r.treatment and r.tags["course"] == "transfer"}
+    sisters = {e.id for e in PLAN.elements if e.kind == "mass" and e.tags.get("ring") == 0} & {
+        r.mass for r in PLAN.regions if r.mass.endswith("/section.0")
+    }
+    assert sisters and transfer == {f"{CENTRAL}/section.0", *sisters}
+    assert all(
+        r.floors == (datum - 1, datum + 2)
+        for r in PLAN.regions
+        if r.treatment and r.tags["course"] == "transfer"
+    )
+    lobbies = {r.mass.rsplit("/", 1)[0] for r in PLAN.regions if r.tags.get("course") == "lobby"}
+    assert CENTRAL in lobbies and len(lobbies) > 1  # sister towers too
+
+
+def test_varied_repetition_gives_tower_groups_their_own_band_rhythm():
+    differ = 0
+    for seed in range(10):
+        plan = resolve(replace(spec_with(SPEC, "style.repetition", "varied"), seed=seed))
+        rhythm = {}
+        for r in plan.regions:
+            if r.layer == "face" and "tower." in r.mass:
+                rhythm.setdefault(r.mass.split("/")[1], set()).add(tuple(r.tags["rhythm"]))
+        assert all(len(v) == 1 for v in rhythm.values())  # one per tower
+        for tower, v in rhythm.items():
+            if ".east." in tower:
+                assert v == rhythm[tower.replace(".east.", ".west.")]  # twins alike
+        differ += len({v.pop() for v in rhythm.values()}) > 1
+    assert differ >= 5
+
+
+def _luxury(plan, **where):
+    leaves = [
+        r for r in plan.regions if r.treatment and all(r.tags.get(k) == v for k, v in where.items())
+    ]
+    return sum(r.tags["grade"] == "luxury" for r in leaves) / len(leaves)
+
+
+def test_portals_then_the_axis_take_the_luxury():
+    portals = [r for r in PLAN.regions if r.treatment == "portal"]
+    assert portals and all(r.tags["grade"] == "luxury" for r in portals)
+    assert (
+        _luxury(PLAN, column="axis") > _luxury(PLAN, column="edge") > _luxury(PLAN, column="flank")
+    )
+    assert _luxury(PLAN, course="capital") > _luxury(PLAN, course="run")
+
+
+def test_luxury_follows_the_spec_and_the_hierarchy():
+    def share(luxury):
+        stats = layers(resolve(spec_with(SPEC, "program.luxury", luxury)))["luxury"]
+        return stats["building"], stats["central"], stats["sister"]
+
+    lean, rich = share(0.15), share(0.35)
+    assert lean[0] < rich[0]
+    assert 0.1 <= lean[0] <= 0.2 and 0.3 <= rich[0] <= 0.4
+    assert rich[1] > rich[2]  # the central tower carries the most
+
+
+def _regraded(plan, rid, grade):
+    regions = tuple(
+        replace(r, tags={**r.tags, "grade": grade}) if r.id == rid else r for r in plan.regions
+    )
+    return replace(plan, regions=regions)
+
+
+def test_programmed_catches_an_ungraded_portal_and_a_lopsided_grading():
+    portal = next(r.id for r in PLAN.regions if r.treatment == "portal")
+    assert "programmed" in failures(measure(_regraded(PLAN, portal, "functional")))
+    edge = next(
+        r.id
+        for r in PLAN.regions
+        if r.treatment and r.tags["column"] == "edge" and r.tags["grade"] == "luxury"
+    )
+    assert failures(measure(_regraded(PLAN, edge, "functional"))) == ["programmed"]
+    assert measure(replace(PLAN, style={**PLAN.style, "symmetry": "none"}))["checks"]["programmed"]
+
+
+def test_banded_catches_a_lobby_off_the_rhythm():
+    regions = tuple(
+        replace(r, tags={**r.tags, "rhythm": [r.tags["rhythm"][0] + 1, *r.tags["rhythm"][1:]]})
+        if r.id == f"{CENTRAL}/section.0/facade.south"
+        else r
+        for r in PLAN.regions
+    )
+    assert failures(measure(replace(PLAN, regions=regions))) == ["banded"]

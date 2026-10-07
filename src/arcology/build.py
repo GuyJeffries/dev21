@@ -142,20 +142,22 @@ def _pier_strip(p: dict) -> list[Box]:
 
 
 def _pier_banded(p: dict) -> list[Box]:
-    """A pier on a horizontal axis. Up the shaft (`bands`: [first floor, count], from the
-    pier's foot) it is glass at the glass line, carrying each floor's stone spandrel band
-    across the bay line, so the windows read as continuous ribbons; above and below, stone
-    standing back to `front`."""
+    """A pier on a horizontal axis. Up each stretch of the shaft (`bands`: [first floor,
+    count] pairs, from the pier's foot) it is glass at the glass line, carrying each floor's
+    stone spandrel band across the bay line, so the windows read as continuous ribbons;
+    elsewhere (base, sky lobbies, capital), stone standing back to `front`."""
     w, fh, sill, dd = p["width"] / 2, p["floor_height"], p["sill"], p["depth"]
-    first, count = p["bands"]
-    z0, z1 = first * fh, (first + count) * fh
-    boxes = [((-w, p["glass"], z0), (w, dd, z1), "glass")]
-    if z0 > 0:
-        boxes.append(((-w, p["front"], 0), (w, dd, z0), "stone"))
-    if z1 < p["height"]:
-        boxes.append(((-w, p["front"], z1), (w, dd, p["height"]), "stone"))
-    for k in range(first, first + count):
-        boxes.append(((-w, p["band"], k * fh), (w, p["glass"], k * fh + sill), "stone"))
+    boxes, z = [], 0.0
+    for first, count in p["bands"]:
+        z0, z1 = first * fh, (first + count) * fh
+        if z0 > z:
+            boxes.append(((-w, p["front"], z), (w, dd, z0), "stone"))
+        boxes.append(((-w, p["glass"], z0), (w, dd, z1), "glass"))
+        for k in range(first, first + count):
+            boxes.append(((-w, p["band"], k * fh), (w, p["glass"], k * fh + sill), "stone"))
+        z = z1
+    if z < p["height"]:
+        boxes.append(((-w, p["front"], z), (w, dd, p["height"]), "stone"))
     return boxes
 
 

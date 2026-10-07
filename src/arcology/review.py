@@ -22,6 +22,7 @@ from PIL import Image, ImageDraw, ImageFont
 from arcology.assemble import assemble
 from arcology.build import build_library
 from arcology.metrics import (
+    LUXURY_SHARE,
     ORNAMENT_CAP,
     PODIUM_SHARE,
     SLENDERNESS,
@@ -222,8 +223,9 @@ def metrics_markdown(results: list[dict], lod: str) -> str:
         f"### Contact sheet: {len(results)} seeds, {lod}",
         "",
         "| seed | height / tip (m) | floors | podium | tower | towers | dominance | footprint (m) "
-        "| tower base (m) | windows | ornament c / s / p / pod | L0 meshes / copies | checks |",
-        "|---:|---:|---:|---:|---:|---:|---:|---|---|---:|---|---:|---|",
+        "| tower base (m) | windows | ornament c / s / p / pod | luxury | L0 meshes / copies "
+        "| checks |",
+        "|---:|---:|---:|---:|---:|---:|---:|---|---|---:|---|---:|---:|---|",
     ]
     for r in results:
         failed = failures(r)
@@ -238,7 +240,8 @@ def metrics_markdown(results: list[dict], lod: str) -> str:
             f"| {r['podium_floors']} | {r['tower_floors']} | {r['towers']} | {dominance} "
             f"| {r['footprint_m'][0]:g} × {r['footprint_m'][1]:g} "
             f"| {r['tower_base_m'][0]:g} × {r['tower_base_m'][1]:g} "
-            f"| {r['windows']:,} | {orn} | {l0['unique']} / {l0['instances']:,} "
+            f"| {r['windows']:,} | {orn} | {r['layers']['luxury']['building']:.0%} "
+            f"| {l0['unique']} / {l0['instances']:,} "
             f"| {'FAIL: ' + ', '.join(failed) if failed else 'ok'} |"
         )
     return "\n".join(lines) + "\n"
@@ -432,6 +435,13 @@ BATCH_RANGES = (
     ),
     ("spire share", lambda r: r["style"]["spire_share"], f"≤ {SPIRE_SHARE:g}"),
     ("ornament, central", lambda r: r["ornament"].get("central"), f"≤ {ORNAMENT_CAP:g}"),
+    (
+        "luxury share",
+        lambda r: r["layers"]["luxury"]["building"],
+        f"{LUXURY_SHARE[0]:g}–{LUXURY_SHARE[1]:g}",
+    ),
+    ("luxury, central", lambda r: r["layers"]["luxury"].get("central"), "≥ the others'"),
+    ("sky lobbies (share)", lambda r: r["layers"]["courses"].get("lobby", 0), None),
 )
 
 

@@ -1,7 +1,7 @@
 # Scale layers and contrast: design note
 
-**Status:** step 1 (the tree) built (2026-10-07); steps 2 and 3 next. This step comes after Phase 4 and before
-Phase 5 (representation levels), which it sets up.
+**Status:** steps 1 (the tree) and 2 (courses and the programme split) built (2026-10-07); step 3 (treatments)
+next. This step comes after Phase 4 and before Phase 5 (representation levels), which it sets up.
 
 ## 1. The problem
 
@@ -131,19 +131,52 @@ back behind it, so the core becomes a cut outline rather than one box.
 
 ## 5. Where the exceptions go
 
-Exceptions are placed by composition, never at random positions, so they read as designed:
+Two mechanisms with different jobs (decided, section 12): **composition** makes the contrast and is regular, the
+same logic on every building; **free placement** sets a building's tone and is occasional.
 
-- **Zones on every face:** axis (the central column, which the pilaster rhythm already defines), flanks, edges (the
-  end columns by the corners), base (the bottom band), top (the band under a setback or cornice), and junctions
-  (the transfer floor, where a tower stands on a terrace, where a bridge lands).
-- **Priority:** axis, then base, then top and junctions, then flanks. Density falls from the axis outwards.
-- **The seed chooses the treatment, composition chooses the place.** Each zone has a short list of allowed
-  treatments; the node's seed picks one.
-- **Symmetry:** mirrored nodes (and mirrored faces, east and west) share their decisions, as twins already do.
-- **Hierarchy:** bigger and richer events on the central tower, fewer on pavilions, as ornament does now.
-- **A `contrast` style setting** (0 to 1) sets how many zones get exceptions and how coarse they go.
-- **Variable band heights:** long shafts break every 8 to 15 floors into runs, with occasional double-height
-  sky-lobby bands; tiers vary in height. This alone adds the missing middle frequency.
+### Composition: courses and the programme split
+
+- **Courses.** Every face splits into the same vertical structure: the base (the ground tier's, matching the
+  entrance), a foot floor facing the terrace a mass stands on, runs of shaft, sky lobbies, seams where bridges cross
+  (the transfer course on the central and sister towers, from the band under the bridges to their top; a landing on
+  each pavilion and the wall it bridges into), and the capital under a terrace or crown.
+- **Band rhythm.** Shafts break into runs (`facade.band_run`, 8 to 15 floors) between sky lobbies
+  (`facade.lobby_floors`, 1 or 2), on one rhythm counted from the transfer floor (or the central tower's foot), so
+  lobbies line up across the towers. A lobby needs four floors of run either side. With varied repetition each
+  tower group draws its own run. This alone adds the missing middle frequency.
+- **Columns.** Each panel is the axis (centred on the face), an edge (by a corner), a flank (between), or the full
+  width (a band across a horizontal face).
+- **Grades.** Every leaf is luxury or functional (its `grade`). A building draws its luxury share
+  (`program.luxury`, 15% to 35%), and each mass's standing scales it as it scales ornament: more on the central
+  tower, less on pavilions, closer together as the hierarchy weakens.
+- **Places.** Composition ranks every leaf by its column (axis, then edge, then flank) and its course (base, then
+  capital and transfer, then the other seams, then runs). Portals are always luxury; then the highest-ranked leaves
+  take the luxury, higher floors first, then nearer the axis, then the front face first, up to the mass's share.
+  Leaves ranked alike are graded together, so mirror images, and east and west faces, always match.
+- **Seams** are the courses where masses or runs meet: foot, lobby, transfer, landing and capital. They, and the
+  lines where luxury meets functional, take the seam treatments (deep bands, cornices, recessed loggias), so a
+  boundary reads as a line rather than a change of colour.
+- **Exceptions go to luxury.** Treatments (section 4) land in luxury leaves and on seams; functional leaves stay
+  calm cells, the ground the contrast reads against, plain on purpose. The seed chooses the treatment, composition
+  the place.
+- **A `contrast` style setting** (0 to 1) sets how many luxury leaves take exceptions and how coarse they go.
+
+### Free placement: a building's tone
+
+- **Any layer can host one, sparingly.** Each building tries the layers largest first; a hit lowers every other
+  layer's odds (to about 0.3 of what they were), so most buildings have one tone layer or none. The seed decides,
+  the plan records it, and a sweep can force it.
+- **Small layers** (detail, cell, panel, band) hit more often and are subtle: one giant window in a field of small
+  ones, a band twice as tall as the rest, a panel that skips a level of the tree.
+- **Large layers** (shaft, mass, building) hit in 15% to 20% of buildings and change the silhouette: colossal
+  figures as pillars carrying a whole tower; a figure standing in one tower and leaning across to the next; an
+  oversized doorway into a cavernous atrium that distorts the pyramid. Silhouette work favours them.
+- **Budgets** cap each layer's count. Where a free placement overlaps composition, it wins locally (the atrium
+  removes the cells it cuts through).
+- **Symmetry.** On bilateral buildings small free placements mirror, since a lone odd window reads as a mistake;
+  large gestures may break symmetry, since a figure leaning between two towers is one-sided by nature.
+- **Checks.** The style envelope still holds, except where a large gesture carries an explicit allowance (a leaning
+  figure isn't "tapered"); the batch report gives the share of buildings with a large gesture.
 
 ## 6. Targets
 
@@ -157,14 +190,16 @@ arcology/tower.central/section.0/facade.south/panel.010/band.001
 Seeds derive from the id as usual. Window copies keep their facade-wide ids (`.../facade.south/bay.012/floor.040`),
 so window identity survives re-splitting; windows inside an opening simply don't exist.
 
-Each node records: layer, rectangle (bays, floors), size in metres, height above ground, facing, zone, standing
-(central, sister, podium, pavilion), and its neighbours (a setback or terrace above, a bridge, a view). The plan gains
-a `regions` list holding the tree (geometry stays in `elements`); builders ignore it, while checks, reviews and later
-rules read it.
+Each node records its layer, rectangle (bays, floors), size in metres and height above ground. A face also records
+its facing, standing (central, sister, podium, pavilion), luxury share and band rhythm; a panel its column; a band
+its course; a leaf its column, course, role and grade. The plan holds the trees in `regions` (geometry stays in
+`elements`); builders ignore it, while checks, reviews and later rules read it. Still to come: neighbours (a
+terrace above, a bridge, a view).
 
-Later design language claims targets by query. "A huge dining room on a balcony" becomes: a band-layer node on the
-axis or top zone, high up, under a setback or facing a terrace, on the central tower; terminate it as a recess with a
-projecting slab, and tag its space `program: dining`. Other target types the images ask for:
+Later design language claims targets by query. "A huge dining room on a balcony" becomes: a luxury band-layer leaf on
+a seam, high up (a capital under a terrace, or a foot facing one), on the central tower; terminate it as a recess
+with a projecting slab, and tag its space `program: dining` (the plan's reserved tag). Other target types the images
+ask for:
 
 - **Rings:** band levels on towers that carry platforms (and later `provision: private_landing`).
 - **Junctions:** where masses meet (a flared skirt, a transfer gallery).
@@ -186,7 +221,11 @@ The current L2 window channels are a crude version of this.
 
 ## 8. Checks
 
-- **Covered:** every face is tiled exactly once by terminal nodes (generalises `facade_complete`).
+- **Covered:** every face is tiled exactly once by terminal nodes (generalises `facade_complete`). Built: `tiled`.
+- **Banded:** lobbies keep the building's rhythm, and no run is longer than a lobby could break. Built: `banded`.
+- **Programmed:** every leaf graded, every portal luxury, the building's luxury share between 10% and 50%, no
+  standing more luxurious than the one above it (within 0.03, as leaves come whole), and the grading mirror
+  symmetric on bilateral styles. Built: `programmed`.
 - **Contrast:** at least two layers above the cell are expressed in each building, and exceptions take between
   roughly 5% and 35% of the facade area (bounds tuned by eye): neither uniform nor noise.
 - **Composed:** exceptions only in their allowed zones, and the axis is each main face's richest zone.
@@ -195,10 +234,10 @@ The current L2 window channels are a crude version of this.
 
 ## 9. Review evidence
 
-- **Elevation sheet (new, no Blender):** flat elevations of each building's main faces drawn with Pillow straight
-  from the plan, regions coloured by treatment and outlined by layer. Cheap, deterministic and readable at a glance:
-  it shows the contrast structure without judging rendered detail. It also shows today's uniform state as the
-  baseline.
+- **Elevation sheet (built, no Blender):** flat south elevations of each building drawn with Pillow straight from
+  the plan, leaves coloured by role (shaft, lobby, base, capital, portal), strong where luxury and pale where
+  functional, and outlined by layer; the caption gives the luxury share and each role's. Cheap, deterministic and
+  readable at a glance: it shows the contrast structure without judging rendered detail.
 - **What-if sheet:** the same seeds with each treatment switched on alone, then combined, and the `contrast` setting
   swept; rendered at L2.
 - **Mid-range view:** a new detail camera on one whole section face (150 to 300 m wide), where bands and panels read.
@@ -219,16 +258,28 @@ Each step is pushed with its sheets:
    beside doors on horizontal faces split in two at the door's top, covering the same floors. A `tiled` check
    proves the leaves tile every face once; `arcology elevations` draws the trees with no Blender. The baseline it
    shows: 82-85% of every building's facade is shaft cells.
-2. **Zones and band rhythm.** Composition zones on every face; variable band heights, shaft runs and sky lobbies.
-3. **Treatments.** Field, opening (with its space), recess (with its slab and space), giant order, rich; the stepped
-   frame and opening grid made self-similar; the `contrast` setting; then the checks, the what-if sheet and the
-   mid-range view. You pick what works.
-4. **Then:** tower shafts (silhouette), the pyramid podium, the move to target scale, and Phase 5.
+2. **Courses, zones and the programme split.** Courses with the band rhythm, columns, and every leaf graded luxury
+   or functional by composition (section 5).
+
+   *Built.* Faces split at course boundaries: base, foot, runs, sky lobbies, the transfer course and pavilion
+   landings, capital. Sky lobbies (and the transfer course) take base windows, so at every distance they read as
+   masonry belts across the glazed shaft, lined up across the towers on the transfer floor's rhythm; on horizontal
+   faces they break the ribbons. Leaves carry `column`, `course` and `grade`; faces their luxury share and rhythm.
+   Over 100 seeds the luxury share runs 16% to 37% of the facade (central tower 20% to 46%, pavilions 10% to 25%),
+   and every style setting passes `banded` and `programmed`. The elevation sheet shows the result: an axis spine,
+   capitals and lobby belts in luxury against a pale functional field. The default building has 1,124 elements
+   (676 before) and 3,680 regions. The grades change no geometry yet.
+3. **Treatments.** Field, opening (with its space), recess (with its slab and space), giant order, rich, placed in
+   luxury leaves and on seams; the stepped frame and opening grid made self-similar; the `contrast` setting; empty
+   figure slots (`asset_slot`) on the axis; small-layer free placements with the tone rule; then the checks, the
+   what-if sheet and the mid-range view. You pick what works.
+4. **Then:** tower shafts (silhouette), the pyramid (smooth and stepped), the move to target scale, large-layer
+   free placements (they need shafts to carry and a pyramid to distort), and Phase 5.
 
 ## 11. Not in this step
 
 Real interiors (stand-in shells only), figures and reliefs (empty slots only), the consequence system, scaling up to
-2 km, the shaft layer and the pyramid. All of them build on the tree.
+2 km, the shaft layer, the pyramid and large-layer free placements. All of them build on the tree.
 
 ## 12. Decisions (2026-10-07)
 
@@ -238,17 +289,15 @@ Real interiors (stand-in shells only), figures and reliefs (empty slots only), t
    so of the base width); keep that proportion through the scale-up.
 2. **The pyramid:** both smooth and stepped, and they can change on one building. The steps set the rhythm: flat
    terraces at the steps, with smooth sloped runs or stepped tiers between them.
-3. **Placement:** still open; see below.
+3. **Placement:** two mechanisms (section 5). Composition is regular and driven by the programme: each building is
+   divided into luxury and functional by a share, and the luxury areas and seams set the tone against the functional
+   areas where this work isn't. Free placement sets a building's tone in particular layers: every layer can have it,
+   each sparingly, and a layer having it lowers the others' likelihood; the very large layers make dramatic shapes
+   on a smaller share of buildings, 15% to 20% (figures as pillars to entire towers, dancing figures spanning a
+   leaning shape between towers, oversized doorways into cavernous atriums that distort the pyramid). Agreed
+   defaults: a luxury share of 15% to 35% of the facade, more on the central tower; small free placements mirror on
+   bilateral buildings, large gestures may break symmetry.
 4. **Figures:** yes, empty asset slots now (`kind: "asset_slot"`, as section 9 of the plan reserves). Filling them
    will be generative too, later.
 5. **Palette:** stones, concretes and metals only. Accents yes (contrasting stones and metals, such as bronze, gilt,
    nickel or dark granite), but not blue.
-
-### Open: free placements
-
-Composition places every exception today: the axis, the base, under setbacks, at junctions, always mirrored. A free
-placement is an exception the seed puts somewhere composition doesn't single out, such as a loggia two panels in
-from the corner of a flank, or a field breaking one band halfway up the shaft. It stays on the grid and mirrored, so
-it still reads as deliberate, but it isn't predictable from the rules. A budget caps how many there are (say one or
-two per main face) so they surprise rather than scatter. The proposal is to build composition first, then add free
-placements as a style setting (default off) if the what-if sheet looks too regular.
