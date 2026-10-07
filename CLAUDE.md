@@ -131,5 +131,7 @@ limited bandwidth: keep everything verifiable in the cloud and review evidence s
   `camera_fit_coords`.
 - "Draco is not available" / "MeshOptimizer is not available" ERROR lines on glTF export are harmless.
 - Blender 5 worlds and materials already have node trees; set the node inputs (`World.use_nodes` is deprecated).
-- CI (GitHub Actions) apt-installs the X11/GL libraries `bpy` links against; see `.github/workflows/check.yml`.
+- CI (GitHub Actions) apt-installs the X11/GL libraries `bpy` links against; see `.github/workflows/check.yml`. Each
+  attempt is limited to 5 minutes with one retry, since the package mirror has hung for a whole job.
+- Push `main` first, then the session branch: the branch's `gate` job skips CI when its commit is already on `main`.
 - Unreal and Houdini can't run in the cloud. Godot can, built from source (about 22 min); see `docs/PLAN.md` App. A.

@@ -5,9 +5,36 @@ on:
   workflow_dispatch:
 
 jobs:
-  check:
+  # Commits go to main and to the session branch together. When the session branch's commit is
+  # already on main, its checks run there; running them twice only doubles the load.
+  gate:
     runs-on: ubuntu-24.04
-    timeout-minutes: 20
+    timeout-minutes: 5
+    outputs:
+      run: ${{ steps.decide.outputs.run }}
+    steps:
+      - id: decide
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if [ "$GITHUB_EVENT_NAME" != "push" ] || [ "$GITHUB_REF" = "refs/heads/main" ]; then
+            echo "run=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          # identical: main's head; behind: an ancestor of main. Either way it's already on main.
+          status=$(gh api "repos/$GITHUB_REPOSITORY/compare/main...$GITHUB_SHA" --jq .status || echo unknown)
+          if [ "$status" = "identical" ] || [ "$status" = "behind" ]; then
+            echo "run=false" >> "$GITHUB_OUTPUT"
+            echo "Commit $GITHUB_SHA is already on main, where its checks run." >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "run=true" >> "$GITHUB_OUTPUT"
+          fi
+
+  check:
+    needs: gate
+    if: needs.gate.outputs.run == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
     steps:
       - uses: actions/checkout@v5
 
@@ -15,11 +42,19 @@ jobs:
         with:
           enable-cache: true
 
+      # The package mirror has hung this step for the job's whole time limit; give each attempt
+      # five minutes and try once more.
       - name: Install system libraries bpy links against
+        timeout-minutes: 11
         run: |
-          sudo apt-get update
-          sudo apt-get install -y --no-install-recommends \
-            libgl1 libsm6 libice6 libx11-6 libxext6 libxfixes3 libxi6 libxrender1 libxkbcommon0
+          install() {
+            timeout 300 sudo bash -c '
+              apt="apt-get -o Acquire::Retries=3 -o DPkg::Lock::Timeout=60"
+              $apt update && $apt install -y --no-install-recommends \
+                libgl1 libsm6 libice6 libx11-6 libxext6 libxfixes3 libxi6 libxrender1 libxkbcommon0
+            '
+          }
+          install || { echo "::warning::installing system libraries failed or timed out; retrying"; install; }
 
       - name: Lint, format check, tests
         run: ./scripts/check.sh
