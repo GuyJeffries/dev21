@@ -48,8 +48,8 @@ limited bandwidth: keep everything verifiable in the cloud and review evidence s
 - Grammar or visual changes: run the contact sheet and look at it (Read the JPEG) before pushing. Tests cannot judge
   whether it looks designed.
 - Put in the pull request: what changed, the `./scripts/check.sh` result, metric changes, and what the sheet showed.
-  Send the sheet to the user in the session too; CI keeps it in the `review` artifact and posts `metrics.md` to the
-  job summary.
+  Send the sheet to the user in the session too. CI uploads it as the small `contact-sheet` artifact (full outputs
+  in `review-full`) and posts `metrics.md` to the job summary.
 
 ## Environment notes
 

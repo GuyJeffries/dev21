@@ -27,11 +27,22 @@ jobs:
       - name: Contact sheet of the golden seeds
         run: uv run arcology sheet specs/default.json -o build/review
 
-      - name: Upload contact sheet, plans and element libraries
+      # Two artifacts so reviewing on a slow link means downloading ~80 KB, not every library.
+      - name: Upload contact sheet and metrics
         if: always()
         uses: actions/upload-artifact@v7
         with:
-          name: review
+          name: contact-sheet
+          path: |
+            build/review/contact_sheet.jpg
+            build/review/metrics.md
+            build/review/metrics.json
+
+      - name: Upload plans, element libraries and tiles
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: review-full
           path: build/review/
 
       - name: Write job summary
@@ -39,4 +50,4 @@ jobs:
         run: |
           cat build/review/metrics.md >> "$GITHUB_STEP_SUMMARY"
           echo "" >> "$GITHUB_STEP_SUMMARY"
-          echo "The contact sheet (contact_sheet.jpg) is in the \`review\` artifact." >> "$GITHUB_STEP_SUMMARY"
+          echo "Contact sheet: the \`contact-sheet\` artifact (~80 KB). Plans, libraries and tiles: \`review-full\`." >> "$GITHUB_STEP_SUMMARY"
