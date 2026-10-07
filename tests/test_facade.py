@@ -78,7 +78,7 @@ def test_every_bay_line_has_exactly_one_pier():
 
 def test_zones_base_on_the_ground_tier_capital_at_every_top():
     tier0 = PLAN.element("arcology/podium/tier.0")
-    entrance = PLAN.element("arcology/podium/tier.0/facade.south/entrance")
+    entrance = next(e for e in PLAN.elements if e.kind == "entrance")
     base = _of(PLAN, "window", zone="base")
     assert base and {e.tags["mass"] for e in base} == {tier0.id}
     assert {c.floor for e in base for c in instances(PLAN, e)} == set(
@@ -110,7 +110,7 @@ def test_capitals_are_deeper_on_richer_masses():
 
 
 def test_doors_at_the_foot_of_every_tower_outer_face():
-    doors = {e.id.rsplit("/", 1)[0]: e for e in _of(PLAN, "door")}
+    doors = {f"{e.tags['mass']}/facade.{e.tags['facade']}": e for e in _of(PLAN, "door")}
     expected = {f"{CENTRAL}/section.0/facade.south", f"{CENTRAL}/section.0/facade.north"}
     for m in (e for e in PLAN.elements if e.kind == "mass" and e.id.endswith("/section.0")):
         if m.tags["tower"] != CENTRAL:

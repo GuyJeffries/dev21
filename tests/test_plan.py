@@ -11,12 +11,24 @@ PLAN = resolve(SPEC)
 SOUTH = "arcology/podium/tier.0/facade.south"
 
 
+def _block(zone):
+    """The south face's first window block in `zone`: its left-most panel."""
+    return next(
+        e
+        for e in PLAN.elements
+        if e.kind == "window"
+        and e.array["prefix"] == SOUTH
+        and e.tags["zone"] == zone
+        and e.array["axes"][0]["start"] == 0
+    )
+
+
 def _windows(plan):
     return {w.id: w for e in plan.elements if e.kind == "window" for w in instances(plan, e)}
 
 
 def test_array_copies_have_grid_ids_floors_and_tags():
-    block = PLAN.element(f"{SOUTH}/windows.base.left")
+    block = _block("base")
     copies = list(instances(PLAN, block))
     assert len(copies) == block.count
     first, last = copies[0], copies[-1]
@@ -80,7 +92,7 @@ def test_strided_arrays_name_copies_by_bay_line():
 
 
 def test_array_bounds_cover_every_copy():
-    block = PLAN.element(f"{SOUTH}/windows.shaft.left")
+    block = _block("shaft")
     lo, hi = element_bounds(block)
     for copy in instances(PLAN, block):
         clo, chi = element_bounds(copy)

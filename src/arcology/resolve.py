@@ -18,7 +18,7 @@ from dataclasses import asdict
 
 from arcology.compose import Tower, composition, secondary_towers
 from arcology.facade import Portal, dress, entrance_size, facade_system, facade_variant
-from arcology.plan import Element, Plan
+from arcology.plan import Element, Plan, Region
 from arcology.rules import ROOT, SETBACK_STRENGTH, ResolveError, bays, mass, notch_for, sample
 from arcology.seeds import derive_seed, path_seed
 from arcology.spec import Spec
@@ -141,15 +141,18 @@ def resolve(spec: Spec) -> Plan:
     tops = {t.sections[-1].id for t in (central, *towers)}
     masses = [*podium, *central.sections, *(s for t in towers for s in t.sections)]
     elements: list[Element] = []
+    regions: list[Region] = []
     for m in masses:
         elements.append(m)
-        elements += dress(
+        dressed, tree = dress(
             m,
             facades.get(m.id, fac),
             portals=portals.get(m.id, ()),
             base=entrance[1] if m is podium[0] else 0,
             parapet=m.id not in tops,
         )
+        elements += dressed
+        regions += tree
     elements.extend(composition(spec, podium, central, towers))
     return Plan(
         seed=spec.seed,
@@ -157,4 +160,5 @@ def resolve(spec: Spec) -> Plan:
         bay_width=spec.facade.bay_width,
         elements=tuple(elements),
         style=asdict(spec.style),
+        regions=tuple(regions),
     )

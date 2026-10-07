@@ -561,6 +561,7 @@ Inside building 3 → looking through window → distinctive building 2 → cut 
 | Termination | Every tower ends in a crown or termination element | 100% |
 | Floor alignment | Elements sit on floor boundaries | 100% |
 | Cornices | Every mass has one cornice, following its outline, in its top floor | 100% |
+| Tiled | Every facade's layer tree has leaves that tile it exactly once (docs/LAYERS.md) | 100% |
 | Ornament hierarchy | No standing carries an ornament system more richly than the standing above it | Pass |
 | Style envelope | Slenderness, taper, podium share, spire share and ornament within the bounds in section 11 | Pass |
 

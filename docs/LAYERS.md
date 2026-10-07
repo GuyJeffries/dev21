@@ -1,7 +1,7 @@
 # Scale layers and contrast: design note
 
-**Status:** proposal for review (2026-10-07). This step comes after Phase 4 and before Phase 5 (representation
-levels), which it sets up.
+**Status:** step 1 (the tree) built (2026-10-07); steps 2 and 3 next. This step comes after Phase 4 and before
+Phase 5 (representation levels), which it sets up.
 
 ## 1. The problem
 
@@ -88,15 +88,15 @@ can run the full width (a ribbon, a blank course).
 
 ```
 tower.central/section.0/facade.south: 26 bays, floors 20-62, vertical axis (columns first)
-├── panel.000  bays 0-6     band.020  floors 20-50  cells
-│                           band.050  floors 50-52  sky lobby: giant order
-│                           band.052  floors 52-62  cells, capital at the top
+├── panel.000  bays 0-6     band.000  floors 20-50  cells
+│                           band.030  floors 50-52  sky lobby: giant order
+│                           band.032  floors 52-62  cells, capital at the top
 ├── panel.006  bays 6-10    as panel.000
 ├── panel.010  bays 10-16   AXIS
-│                           band.020  floors 20-21  portal (door)
-│                           band.021  floors 21-33  opening, 12 floors, space behind
-│                           band.033  floors 33-50  cells, rich
-│                           band.050  floors 50-62  field with a relief slot
+│                           band.000  floors 20-21  portal (door)
+│                           band.001  floors 21-33  opening, 12 floors, space behind
+│                           band.013  floors 33-50  cells, rich
+│                           band.030  floors 50-62  field with a relief slot
 ├── panel.016  bays 16-20   mirror of panel.006
 └── panel.020  bays 20-26   mirror of panel.000
 ```
@@ -145,11 +145,11 @@ Exceptions are placed by composition, never at random positions, so they read as
 
 ## 6. Targets
 
-Every node has a stable id, built from its position the way ids are now (bands by first floor, panels by first bay,
-so they survive changes elsewhere):
+Every node has a stable id, built from its position the way ids are now (panels by first bay, bands by first floor
+counted from the mass's foot, so they survive changes elsewhere, such as a taller podium below):
 
 ```
-arcology/tower.central/section.0/facade.south/panel.010/band.021
+arcology/tower.central/section.0/facade.south/panel.010/band.001
 ```
 
 Seeds derive from the id as usual. Window copies keep their facade-wide ids (`.../facade.south/bay.012/floor.040`),
@@ -207,6 +207,16 @@ Each step is pushed with its sheets:
 
 1. **The tree, no visual change.** Make the layers explicit in `facade.py`, add `Plan.regions` and the elevation
    sheet. The golden seeds' geometry stays identical.
+
+   *Built.* Faces split into panels at pilaster lines and portal edges and into bands at zone boundaries (columns
+   first; bands first on horizontal faces). Leaves are `cells` (role base, shaft or capital) or `portal`, and
+   generate their elements; cells leaves side by side on the same floors share one window array, so the plan stays
+   compact (676 elements for the default building, against 700 before; the tree adds about 2,500 regions). Piers
+   stand on every bay line except where a leaf that isn't cells spans it. Every placed copy is identical to
+   before on 48 plans (golden seeds and four more, default, horizontal and varied styles), except that L2 channels
+   beside doors on horizontal faces split in two at the door's top, covering the same floors. A `tiled` check
+   proves the leaves tile every face once; `arcology elevations` draws the trees with no Blender. The baseline it
+   shows: 82-85% of every building's facade is shaft cells.
 2. **Zones and band rhythm.** Composition zones on every face; variable band heights, shaft runs and sky lobbies.
 3. **Treatments.** Field, opening (with its space), recess (with its slab and space), giant order, rich; the stepped
    frame and opening grid made self-similar; the `contrast` setting; then the checks, the what-if sheet and the

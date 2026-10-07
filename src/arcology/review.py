@@ -35,9 +35,6 @@ from arcology.resolve import resolve
 from arcology.rules import CENTRAL
 from arcology.spec import Spec, spec_with
 
-# Fixed seeds rendered on every pull request, so before/after sheets are comparable.
-GOLDEN_SEEDS = (11, 23, 37, 41, 53, 67, 71, 89, 97, 101, 113, 127)
-
 SKY = (0.62, 0.70, 0.82)
 GROUND = (0.36, 0.38, 0.33)
 

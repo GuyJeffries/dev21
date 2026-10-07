@@ -50,8 +50,12 @@ def test_every_mass_is_dressed_round_its_outline():
         edges = outline(mass.params["width"], mass.params["depth"], mass.params.get("notch", 0))
         assert {"core", "cornice"} <= kids
         assert {f"corner.{e.corner}" for e in edges} <= kids
-        for e in edges:
-            assert any(k.startswith(f"facade.{e.name}/windows") for k in kids), (mass.id, e.name)
+        glazed = {
+            w.tags["facade"]
+            for w in plan.elements
+            if w.kind == "window" and w.tags["mass"] == mass.id
+        }
+        assert glazed == {e.name for e in edges}, mass.id
     notched = plan.element(f"{TOWER}/section.0")
     assert notched.recipe == "mass.notched" and notched.params["notch"] == plan.bay_width
 
@@ -90,7 +94,8 @@ def test_fixed_values_are_used_exactly():
 
 def test_entrance_is_centred_on_the_podium_south_face():
     plan = resolve(_with(SPEC, "facade", entrance_bays=5, entrance_floors=3))
-    entrance = plan.element("arcology/podium/tier.0/facade.south/entrance")
+    entrance = next(e for e in plan.elements if e.kind == "entrance")
+    assert (entrance.tags["mass"], entrance.tags["facade"]) == ("arcology/podium/tier.0", "south")
     bays = round(plan.element("arcology/podium/tier.0").params["width"] / plan.bay_width)
     b0, b1 = entrance.tags["bays"]
     assert b0 == bays - b1  # same number of bays either side

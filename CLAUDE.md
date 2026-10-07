@@ -23,6 +23,8 @@ limited bandwidth: keep everything verifiable in the cloud and review evidence s
   parameter with `--set style.hierarchy=strong,weak --set secondary_towers.count=0,3,6`
 - Batch of 100 seeds as L3 silhouettes, with the style envelope's ranges:
   `uv run arcology batch specs/default.json -o build/batch` (`batch_sheet.jpg`, `batch.md`; about 60 s)
+- Elevation sheet of the golden seeds, the layer trees drawn flat with no Blender:
+  `uv run arcology elevations specs/default.json -o build/elevations` (`elevation_sheet.jpg`; about 3 s)
 - Spec to plan, no Blender: `uv run arcology resolve specs/default.json --seed 7 -o plan.json`
 - Plan to element library + manifest: `uv run arcology build plan.json -o build/seed-7 --lod L2`
 
@@ -32,20 +34,21 @@ limited bandwidth: keep everything verifiable in the cloud and review evidence s
 |---|---|---|
 | `spec.py` | Schema v0: dataclasses, strict loading, ranges | No |
 | `seeds.py` | Per-element seeds from ID paths (blake2b) | No |
-| `plan.py` | Resolved plan: `Element`, `Plan`, arrays and `instances()`, element keys, bounds | No |
+| `plan.py` | Resolved plan: `Element`, `Region` (layer trees), `Plan`, arrays and `instances()`, keys, bounds | No |
 | `rules.py` | Shared primitives: sampling, grid snapping, mass elements, outlines (`outline`, notches), LOD sets | No |
 | `resolve.py` | The grammar's order: podium, central tower, secondary towers, facades, composition | No |
 | `compose.py` | Composition: secondary towers in rings, bridges, transfer bands, crowns, parapets | No |
-| `facade.py` | Facades: corners, pilasters and piers, windows by zone, portals, cornices, merlons, ornament density | No |
+| `facade.py` | Facades: layer trees, corners, pilasters and piers, windows by zone, portals, cornices, merlons | No |
 | `metrics.py` | Structural checks (massing, facades, symmetry, dominance, bridges, crowns, clearance), style envelope | No |
 | `build.py` | Box-built recipes; plan → element library (.glb) + placement manifest | Yes |
 | `assemble.py` | Stand-in assembler: manifest → instanced scene (expands arrays) | Yes |
 | `review.py` | Contact (L2), detail (L0), sweep (L2) and batch (L3) sheets; Cycles CPU + Pillow, golden seeds | Yes |
+| `elevation.py` | Elevation sheet: south elevations of the layer trees, drawn with Pillow from the plan | No |
 
 ## Conventions
 
-- **The grammar stays plain Python.** `spec`, `seeds`, `plan`, `rules`, `resolve`, `compose`, `facade` and
-  `metrics` must never import `bpy`;
+- **The grammar stays plain Python.** `spec`, `seeds`, `plan`, `rules`, `resolve`, `compose`, `facade`,
+  `metrics` and `elevation` must never import `bpy`;
   `test_pure_python.py` enforces it. Import Blender modules lazily from the CLI.
 - **Units:** metres, Z up. Heights are whole floors (`floor_height`); widths and depths are whole bays
   (`facade.bay_width`).
@@ -55,6 +58,10 @@ limited bandwidth: keep everything verifiable in the cloud and review evidence s
   mesh must match it exactly (`test_every_recipe_mesh_matches_its_element_extent`).
 - **Outlines:** a mass's footprint is `rules.outline()`: a rectangle, or one with every corner notched. Facades,
   corners, rings (bands, cornices, parapets) and checks all walk its edges; never assume four faces.
+- **Layer trees:** every face is a tree of regions (`Plan.regions`, docs/LAYERS.md): panels by first bay, bands by
+  first floor counted from the mass's foot. Leaves carry a treatment and generate the elements that fill them;
+  those elements list their leaves in a `regions` tag. Add a facade feature as a treatment of a leaf, not as
+  elements placed beside the tree, so `tiled` and the elevation sheet see it.
 - **Repetition:** windows, piers and merlons are array elements; an axis may have a `stride` (pilasters every k
   bay lines). A copy's id comes from the array's `prefix` plus its facade-wide grid position
   (`.../facade.south/bay.007/floor.012`, `.../facade.south/pier.012`), never from how the grid was split into

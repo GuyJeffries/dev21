@@ -6,6 +6,7 @@ arcology sheet specs/default.json -o build/review            golden seeds -> con
 arcology detail specs/default.json -o build/detail           close-ups of 3 seeds at L0
 arcology sweep specs/default.json -o build/sweep             style parameters, one per row
 arcology batch specs/default.json -o build/batch             100 seeds as silhouettes (L3)
+arcology elevations specs/default.json -o build/elevations   layer trees, flat (no Blender)
 """
 
 import argparse
@@ -17,6 +18,7 @@ from pathlib import Path
 from arcology.metrics import failures, measure
 from arcology.plan import LODS, Plan
 from arcology.resolve import ResolveError, resolve
+from arcology.seeds import GOLDEN_SEEDS
 from arcology.spec import SpecError, load_spec
 
 
@@ -96,6 +98,15 @@ def main(argv: list[str] | None = None) -> int:
     a.add_argument("--cols", type=int, default=10)
     a.add_argument("--samples", type=int, default=8)
 
+    v = sub.add_parser(
+        "elevations", help="spec -> south elevations of the layer trees (no Blender)"
+    )
+    v.add_argument("spec", type=Path)
+    v.add_argument("--seeds", type=int, nargs="+", help="default: the golden seeds")
+    v.add_argument("-o", "--out", type=Path, default=Path("build/elevations"))
+    v.add_argument("--tile", type=_size, default=(480, 420), help="tile size, e.g. 480x420")
+    v.add_argument("--cols", type=int, default=4)
+
     args = parser.parse_args(argv)
     try:
         if args.command == "resolve":
@@ -112,6 +123,14 @@ def main(argv: list[str] | None = None) -> int:
                 sys.stdout.write(plan.to_json())
             return 1 if failures(measure(plan)) else 0
 
+        if args.command == "elevations":
+            from arcology.elevation import elevation_sheet
+
+            seeds = args.seeds or GOLDEN_SEEDS
+            elevation_sheet(load_spec(args.spec), seeds, args.out, tile=args.tile, cols=args.cols)
+            print(f"{args.out / 'elevation_sheet.jpg'}: {len(seeds)} seeds")
+            return 0
+
         if args.command == "build":
             from arcology.build import build_library  # imports Blender
 
@@ -121,7 +140,6 @@ def main(argv: list[str] | None = None) -> int:
             return 0
 
         from arcology.review import (  # imports Blender
-            GOLDEN_SEEDS,
             STYLE_SWEEPS,
             SWEEP_SEED,
             batch_sheet,

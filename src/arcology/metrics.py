@@ -10,7 +10,7 @@ import json
 import math
 from collections import Counter
 
-from arcology.plan import LODS, Element, Plan, element_bounds, element_key, plan_bounds
+from arcology.plan import LODS, Element, Plan, Region, element_bounds, element_key, plan_bounds
 from arcology.rules import CENTRAL, HIERARCHY, in_outline, outline, standing
 
 MAX_SPAN = 30.0  # metres a bridge may span
@@ -48,13 +48,87 @@ def _inside(upper: Element, lower: Element) -> bool:
 def _cells(e: Element) -> set[tuple[str, int, int]]:
     """(facade id, bay, floor) cells a window block or entrance fills."""
     if e.kind in ("entrance", "door"):
-        prefix = e.id.rsplit("/", 1)[0]
+        prefix = f"{e.tags['mass']}/facade.{e.tags['facade']}"
         (b0, b1), (f0, f1) = e.tags["bays"], e.tags["floors"]
         return {(prefix, b, f) for b in range(b0, b1) for f in range(f0, f1)}
     axes = {a["name"]: a for a in e.array["axes"]}
     bays = range(axes["bay"]["start"], axes["bay"]["start"] + axes["bay"]["count"])
     floors = range(axes["floor"]["start"], axes["floor"]["start"] + axes["floor"]["count"])
     return {(e.array["prefix"], b, f) for b in bays for f in floors}
+
+
+def _faces(plan: Plan, masses: list[Element]) -> dict[str, tuple[range, range]]:
+    """Every facade's (bays, floors), one per outline edge of every mass."""
+    out = {}
+    for m in masses:
+        floors = range(m.floor, m.floor + round(m.params["height"] / plan.floor_height))
+        for edge in outline(m.params["width"], m.params["depth"], m.params.get("notch", 0.0)):
+            out[f"{m.id}/facade.{edge.name}"] = (range(round(edge.length / plan.bay_width)), floors)
+    return out
+
+
+def _face_of(region: Region, by_id: dict[str, Region]) -> Region:
+    while region.parent is not None:
+        region = by_id[region.parent]
+    return region
+
+
+def _tiled(plan: Plan, masses: list[Element]) -> bool:
+    """Every facade has a layer tree whose root is the whole face and whose leaves tile it
+    exactly once; every child lies within its parent; and every window, channel and portal
+    names the leaves it fills, of the matching treatment."""
+    by_id = {r.id: r for r in plan.regions}
+    faces = _faces(plan, masses)
+    roots = {r.id: r for r in plan.regions if r.layer == "face"}
+    if roots.keys() != faces.keys():
+        return False
+    for fid, (bays, floors) in faces.items():
+        if roots[fid].bays != (bays.start, bays.stop) or roots[fid].floors != (
+            floors.start,
+            floors.stop,
+        ):
+            return False
+    filled: Counter = Counter()
+    for r in plan.regions:
+        if r.parent is not None:
+            parent = by_id.get(r.parent)
+            if parent is None or not (
+                parent.bays[0] <= r.bays[0] < r.bays[1] <= parent.bays[1]
+                and parent.floors[0] <= r.floors[0] < r.floors[1] <= parent.floors[1]
+            ):
+                return False
+        if r.treatment:
+            face = _face_of(r, by_id).id
+            filled.update((face, b, f) for b in range(*r.bays) for f in range(*r.floors))
+    expected = {(fid, b, f) for fid, (bays, floors) in faces.items() for b in bays for f in floors}
+    if set(filled) != expected or any(n != 1 for n in filled.values()):
+        return False
+    wanted = {"window": "cells", "channel": "cells", "entrance": "portal", "door": "portal"}
+    return all(
+        e.tags.get("regions")
+        and all(
+            rid in by_id and by_id[rid].treatment == wanted[e.kind] for rid in e.tags["regions"]
+        )
+        for e in plan.elements
+        if e.kind in wanted
+    )
+
+
+def layers(plan: Plan) -> dict:
+    """The layer trees in numbers: regions per layer, and each leaf treatment's share of the
+    facade area (cells by role)."""
+    regions = Counter(r.layer for r in plan.regions)
+    area: Counter = Counter()
+    for r in plan.regions:
+        if r.treatment:
+            kind = f"{r.treatment}.{r.tags['role']}" if r.treatment == "cells" else r.treatment
+            area[kind] += (r.bays[1] - r.bays[0]) * (r.floors[1] - r.floors[0])
+    total = sum(area.values()) or 1
+    return {
+        "regions": dict(sorted(regions.items())),
+        "leaves": sum(1 for r in plan.regions if r.treatment),
+        "area": {k: round(v / total, 4) for k, v in sorted(area.items())},
+    }
 
 
 def _facade_complete(plan: Plan, masses: list[Element]) -> bool:
@@ -376,6 +450,7 @@ def measure(plan: Plan) -> dict:
         ),
         "contained": all(_inside(b, a) for a, b in pairs),
         "facade_complete": _facade_complete(plan, masses),
+        "tiled": _tiled(plan, masses),
         "dressed": _dressed(plan, masses),
         "corniced": _corniced(plan, masses),
         "ornament_hierarchy": _ornament_hierarchy(plan, masses),
@@ -410,6 +485,7 @@ def measure(plan: Plan) -> dict:
         "style": style,
         "windows": sum(e.count for e in plan.elements if e.kind == "window"),
         "ornament": density,
+        "layers": layers(plan),
         "lod": lod_counts(plan),
         "checks": checks,
     }

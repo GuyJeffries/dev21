@@ -26,3 +26,7 @@ def path_seed(root: int, path: str) -> int:
 def rng(seed: int, name: str) -> random.Random:
     """A random stream for one named decision belonging to the element with `seed`."""
     return random.Random(derive_seed(seed, name))
+
+
+# Fixed seeds rendered on every pull request, so before/after sheets are comparable.
+GOLDEN_SEEDS = (11, 23, 37, 41, 53, 67, 71, 89, 97, 101, 113, 127)

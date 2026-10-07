@@ -14,6 +14,7 @@ uv run arcology sheet specs/default.json -o build/review       # contact sheet o
 uv run arcology detail specs/default.json -o build/detail      # close-ups of 3 seeds (L0): entrance, cluster, setback, crown
 uv run arcology sweep specs/default.json -o build/sweep        # each style setting along a row, one seed (L2)
 uv run arcology batch specs/default.json -o build/batch        # 100 seeds as silhouettes (L3), style envelope ranges
+uv run arcology elevations specs/default.json -o build/elevations   # layer trees, flat (no Blender)
 uv run arcology resolve specs/default.json --seed 7 -o plan.json
 uv run arcology build plan.json -o build/seed-7 --lod L2
 ./scripts/check.sh                                             # lint, format check, tests
@@ -50,4 +51,6 @@ spec (specs/*.json) → resolve (plain Python) → plan.json
   termination). A style envelope checks every seed for drift (needles, stubs, slabs, missing base, oversized
   spires, ornament noise). Sweep sheets show one setting per row; a 100-seed batch sheet shows the family holds.
 
-Next is Phase 5: representation levels (L0 to L3 with budgets, distance sheets).
+Next is Phase 4b, scale layers and contrast ([`docs/LAYERS.md`](docs/LAYERS.md)): step 1, an explicit layer tree on
+every facade with an elevation sheet, is built; zones, band rhythm and treatments that skip layers come next. Then
+Phase 5: representation levels.

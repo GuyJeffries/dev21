@@ -24,6 +24,9 @@ jobs:
       - name: Lint, format check, tests
         run: ./scripts/check.sh
 
+      - name: Elevation sheet of the golden seeds (layer trees, no Blender)
+        run: uv run arcology elevations specs/default.json -o build/elevations
+
       - name: Contact sheet of the golden seeds (L2)
         run: uv run arcology sheet specs/default.json -o build/review
 
@@ -47,6 +50,7 @@ jobs:
             build/review/metrics.md
             build/review/metrics.json
             build/detail/detail_sheet.jpg
+            build/elevations/elevation_sheet.jpg
             build/sweep/sweep_sheet.jpg
             build/sweep/sweep.md
             build/batch/batch_sheet.jpg
@@ -71,4 +75,4 @@ jobs:
             if [ -f "$table" ]; then echo "" >> "$GITHUB_STEP_SUMMARY"; cat "$table" >> "$GITHUB_STEP_SUMMARY"; fi
           done
           echo "" >> "$GITHUB_STEP_SUMMARY"
-          echo "Sheets: the \`review-sheets\` artifact (contact_sheet.jpg, detail_sheet.jpg, sweep_sheet.jpg, batch_sheet.jpg). Plans, libraries and tiles: \`review-full\`." >> "$GITHUB_STEP_SUMMARY"
+          echo "Sheets: the \`review-sheets\` artifact (contact_sheet.jpg, detail_sheet.jpg, elevation_sheet.jpg, sweep_sheet.jpg, batch_sheet.jpg). Plans, libraries and tiles: \`review-full\`." >> "$GITHUB_STEP_SUMMARY"

@@ -89,12 +89,59 @@ class Element:
 
 
 @dataclass(frozen=True)
+class Region:
+    """A node of a facade's layer tree (docs/LAYERS.md): a rectangle of whole bays and floors
+    on one face of a mass. The face is the root; it splits into panels (columns of bays) and
+    bands (runs of floors). A leaf has a treatment, and the elements filling it carry its id
+    in their `region` tag. Regions hold no geometry: builders ignore them; checks, reviews and
+    later rules read them as targets."""
+
+    id: str  # stable path, e.g. ".../facade.south/panel.010/band.021"
+    layer: str  # "face", "panel" or "band"
+    parent: str | None  # None for a face
+    mass: str
+    facade: str  # outline edge name
+    bays: tuple[int, int]  # [first, end) along the face
+    floors: tuple[int, int]  # [first, end), building floors
+    treatment: str | None = None  # leaves only: "cells", "portal"
+    tags: dict = field(default_factory=dict)  # role, facing, size_m, height_m, standing
+
+    def to_dict(self) -> dict:
+        return {
+            "id": self.id,
+            "layer": self.layer,
+            "parent": self.parent,
+            "mass": self.mass,
+            "facade": self.facade,
+            "bays": list(self.bays),
+            "floors": list(self.floors),
+            "treatment": self.treatment,
+            "tags": self.tags,
+        }
+
+    @classmethod
+    def from_dict(cls, d: dict) -> "Region":
+        return cls(
+            id=d["id"],
+            layer=d["layer"],
+            parent=d["parent"],
+            mass=d["mass"],
+            facade=d["facade"],
+            bays=tuple(d["bays"]),
+            floors=tuple(d["floors"]),
+            treatment=d["treatment"],
+            tags=d["tags"],
+        )
+
+
+@dataclass(frozen=True)
 class Plan:
     seed: int
     floor_height: float
     bay_width: float
     elements: tuple[Element, ...]
     style: dict = field(default_factory=dict)  # the spec's style section, which checks read
+    regions: tuple[Region, ...] = ()  # every facade's layer tree, parents before children
     schema: str = PLAN_SCHEMA
     units: str = "m"
 
@@ -110,6 +157,7 @@ class Plan:
             "bay_width": self.bay_width,
             "style": self.style,
             "elements": [e.to_dict() for e in self.elements],
+            "regions": [r.to_dict() for r in self.regions],
         }
 
     def to_json(self) -> str:
@@ -128,6 +176,7 @@ class Plan:
             bay_width=d["bay_width"],
             elements=tuple(Element.from_dict(e) for e in d["elements"]),
             style=d.get("style", {}),
+            regions=tuple(Region.from_dict(r) for r in d.get("regions", [])),
             units=d["units"],
         )
 

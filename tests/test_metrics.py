@@ -14,6 +14,22 @@ SOUTH = "arcology/podium/tier.0/facade.south"
 EAST = "arcology/tower.east.mid/section.0"
 
 
+def _first(mass, facade, kind, zone=None):
+    """The id of the first element of `kind` on a facade (in a zone), found by its tags."""
+    return next(
+        e.id
+        for e in PLAN.elements
+        if e.kind == kind
+        and e.tags.get("mass") == mass
+        and e.tags.get("facade") == facade
+        and (zone is None or e.tags.get("zone") == zone)
+    )
+
+
+TIER0 = "arcology/podium/tier.0"
+ENTRANCE = _first(TIER0, "south", "entrance")
+
+
 def _alter(element_id, **changes):
     elements = []
     for e in PLAN.elements:
@@ -45,7 +61,7 @@ def _shift_bridge(dz):
 
 
 def _shift_window_block():
-    block = PLAN.element(f"{EAST}/facade.east/windows.shaft.left")
+    block = PLAN.element(_first(EAST, "east", "window", "shaft"))
     x, y, z = block.translation
     return _alter(block.id, translation=(x + 3.0, y, z))
 
@@ -96,27 +112,33 @@ def test_resolved_plan_passes_every_check():
         ),
         (
             lambda: _widen(TOP, 600.0),
-            {"setbacks_monotonic", "contained", "facade_complete", "corniced"},
+            {"setbacks_monotonic", "contained", "facade_complete", "corniced", "tiled"},
         ),
         (
             lambda: _alter(TOP, translation=(30.0, 0.0, _z(TOP))),
             {"contained", "symmetric", "crowned", "dressed", "corniced"},
         ),
-        (lambda: _drop(f"{SOUTH}/windows.shaft.above"), {"facade_complete"}),
-        (lambda: _duplicate(f"{SOUTH}/windows.base.left"), {"facade_complete", "symmetric"}),
+        (
+            lambda: _drop(_first(TIER0, "south", "window", "shaft")),
+            {"facade_complete"},
+        ),
+        (
+            lambda: _duplicate(_first(TIER0, "south", "window", "base")),
+            {"facade_complete", "symmetric"},
+        ),
         (lambda: _drop(f"{SOUTH}/piers.0"), {"symmetric"}),
         (lambda: _drop(f"{TOP}/cornice"), {"corniced"}),
         (lambda: _duplicate(f"{EAST}/cornice"), {"corniced", "symmetric"}),
         # A sister tower carrying more chevrons than the central tower.
         (
-            lambda: _alter(f"{EAST}/facade.east/windows.capital.left", params={"chevrons": 3}),
+            lambda: _alter(_first(EAST, "east", "window", "capital"), params={"chevrons": 3}),
             {"ornament_hierarchy", "symmetric"},
         ),
-        (lambda: _drop(f"{SOUTH}/entrance"), {"entrance", "facade_complete"}),
+        (lambda: _drop(ENTRANCE), {"entrance", "facade_complete"}),
         (
             lambda: _alter(
-                f"{SOUTH}/entrance",
-                translation=(6.0, *PLAN.element(f"{SOUTH}/entrance").translation[1:]),
+                ENTRANCE,
+                translation=(6.0, *PLAN.element(ENTRANCE).translation[1:]),
             ),
             {"entrance", "symmetric"},
         ),
@@ -134,11 +156,20 @@ def test_resolved_plan_passes_every_check():
                 "stacked",
                 "symmetric",
                 "corniced",
+                "tiled",
             },
         ),
         (
             lambda: _taller(EAST, 500.0),
-            {"dominant", "facade_complete", "stacked", "symmetric", "corniced", "proportioned"},
+            {
+                "dominant",
+                "facade_complete",
+                "stacked",
+                "symmetric",
+                "corniced",
+                "proportioned",
+                "tiled",
+            },
         ),
         (lambda: _shift_bridge(1.0), {"connected", "floor_aligned", "symmetric"}),
         (lambda: _shift_window_block(), {"dressed", "symmetric"}),
