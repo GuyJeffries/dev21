@@ -5,7 +5,9 @@ re-entrant piece at notched corners), a stone pier on every bay line and a glaze
 every bay of every floor. Phase 3 fills the middle scale, largest first:
 
 - Pilasters: every k-th bay line (`facade.pilaster_every`) carries a full-depth pier, set
-  out symmetrically from the facade's centre; the piers between stand back.
+  out symmetrically from the facade's centre; the piers between stand back. On a
+  horizontal dominant axis (Phase 4) there are none: piers stand back to the glass line and
+  stone spandrel bands run unbroken across them instead.
 - Zones: the top floors of every mass are its capital (stone panels, shorter glass, a
   stepped head), the ground tier's bottom floors are the base (stone jambs narrowing the
   glass), and the shaft between keeps the glazed channels. At L2, where windows drop out,
@@ -20,13 +22,14 @@ every bay of every floor. Phase 3 fills the middle scale, largest first:
 """
 
 from collections import defaultdict
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 
 from arcology.compose import PARAPET_HEIGHT
 from arcology.plan import Element
 from arcology.rules import (
     DETAIL,
     DISTANT,
+    HIERARCHY,
     ROOT,
     STRUCTURE,
     Edge,
@@ -44,6 +47,7 @@ from arcology.spec import Spec
 GLASS = 0.05  # glazing thickness
 MULLION_DEPTH = 0.06  # mullions and transoms stand this far in front of the glass
 MINOR_SETBACK = 0.2  # piers between pilasters stand back this far from the envelope
+BAND_FRONT = 0.15  # horizontal axis: spandrel bands stand this far behind the envelope
 FLUTES, REED = 3, 0.08  # a fluted pilaster's flutes, and how deep its reeds stand
 CAPITAL_SHARE = 0.06  # capital floors per floor of the mass, at rho = 0.5
 CAPITAL_SILL = 0.6  # share of a capital floor that is stone panel below the glass
@@ -101,6 +105,8 @@ class FacadeSystem:
     mullions: int
     pilaster_every: int
     ornament: float  # style.ornament_density
+    spread: float = 1.0  # share of the ornament differences between standings kept (hierarchy)
+    axis: str = "vertical"  # style.dominant_axis: continuous piers, or continuous spandrel bands
 
     @property
     def depth(self) -> float:
@@ -125,6 +131,10 @@ class FacadeSystem:
         if zone == "shaft":
             recipe = "window.deco_tall"
             params["sill"] = rnd(fh * (0.55 - 0.45 * self.density))
+            if self.axis == "horizontal":  # a stone band, standing forward, for a spandrel
+                recipe = "window.deco_band"
+                params["band"] = BAND_FRONT
+                nearest = BAND_FRONT
         elif zone == "capital":
             recipe = "window.deco_capital"
             sill = fh * CAPITAL_SILL
@@ -148,6 +158,12 @@ class FacadeSystem:
         return recipe, params, extent
 
 
+def _pilasters(spec: Spec, seed: int) -> int:
+    """Pilaster rhythm; none on a horizontal axis, where spandrel bands run unbroken."""
+    every = sample(spec.facade.pilaster_every, seed, "pilaster_every", integer=True)
+    return 0 if spec.style.dominant_axis == "horizontal" else every
+
+
 def facade_system(spec: Spec) -> FacadeSystem:
     fs = path_seed(spec.seed, f"{ROOT}/facade")
     f = spec.facade
@@ -159,14 +175,30 @@ def facade_system(spec: Spec) -> FacadeSystem:
         recess=f.window_recess,
         density=rnd(sample(f.density, fs, "density")),
         mullions=sample(f.mullions, fs, "mullions", integer=True),
-        pilaster_every=sample(f.pilaster_every, fs, "pilaster_every", integer=True),
+        pilaster_every=_pilasters(spec, fs),
         ornament=spec.style.ornament_density,
+        spread=HIERARCHY[spec.style.hierarchy].spread,
+        axis=spec.style.dominant_axis,
     )
     if system.pier_width >= system.bay / 2:
         raise ResolveError(
             f"{ROOT}/facade: piers {system.pier_width:g} m wide leave no room in a bay"
         )
     return system
+
+
+def facade_variant(spec: Spec, fac: FacadeSystem, seed: int) -> FacadeSystem:
+    """A tower group's own facade, for varied repetition: density, mullions and pilaster
+    rhythm drawn afresh within the spec's ranges; the bay, piers and depths stay the
+    building's, so the towers still share one grid."""
+    fs = derive_seed(seed, "facade")
+    f = spec.facade
+    return replace(
+        fac,
+        density=rnd(sample(f.density, fs, "density")),
+        mullions=sample(f.mullions, fs, "mullions", integer=True),
+        pilaster_every=_pilasters(spec, fs),
+    )
 
 
 def entrance_size(spec: Spec, tier0: Element, fac: FacadeSystem) -> tuple[int, int]:
@@ -194,7 +226,9 @@ def entrance_size(spec: Spec, tier0: Element, fac: FacadeSystem) -> tuple[int, i
 
 
 def ornament(m: Element, fac: FacadeSystem) -> float:
-    return rnd(fac.ornament * STANDING_ORNAMENT[standing(m)])
+    """A mass's ornament density: the style's, less the share its standing gives up (less
+    still the weaker the hierarchy)."""
+    return rnd(fac.ornament * (1 - (1 - STANDING_ORNAMENT[standing(m)]) * fac.spread))
 
 
 def chevrons(rho: float) -> int:
@@ -333,19 +367,22 @@ class _Face:
         )
         # At L2, one channel per bay column stands in for the block's windows, so distant
         # views keep the zones: dark glass up the shaft, stone in the base and capital.
+        # On a horizontal axis the shaft's channels are banded, stone and glass floor by floor.
         fac, clear = self.fac, self.fac.bay - self.fac.pier_width
         h, front = rnd(len(floors) * fac.floor_height), rnd(fac.pier_depth + fac.recess / 2)
+        recipe, cparams = "window.channel", {"material": "glass" if zone == "shaft" else "stone"}
+        if "band" in params:
+            front, recipe = params["band"], "window.channel_banded"
+            cparams = {
+                "floor_height": fac.floor_height,
+                "sill": params["sill"],
+                "glass": rnd(fac.pier_depth + fac.recess),
+            }
         channel = self.element(
             name.replace("windows", "channels", 1),
             "channel",
-            "window.channel",
-            {
-                "width": rnd(clear),
-                "height": h,
-                "front": front,
-                "depth": fac.depth,
-                "material": "glass" if zone == "shaft" else "stone",
-            },
+            recipe,
+            {"width": rnd(clear), "height": h, "front": front, "depth": fac.depth, **cparams},
             ((rnd(-clear / 2), front, 0.0), (rnd(clear / 2), fac.depth, h)),
             u,
             floors.start,
@@ -355,19 +392,33 @@ class _Face:
         )
         return [window, channel]
 
-    def piers(self, name: str, lines: range, from_floor: int, order: str, rho: float):
+    def piers(self, name: str, lines: range, from_floor: int, order: str, rho: float, shaft: range):
         """Piers on bay `lines` from `from_floor` to the top of the mass: full-depth
-        pilasters (fluted as ornament allows), or minor piers standing back between them."""
-        pw, dd = self.fac.pier_width, self.fac.depth
-        h = rnd(self.mass.params["height"] - (from_floor - self.mass.floor) * self.fac.floor_height)
+        pilasters (fluted as ornament allows), or minor piers standing back between them. On
+        a horizontal axis piers stand back and, up the `shaft`, give way to glass behind the
+        spandrel bands they carry across, so each floor's windows read as one ribbon."""
+        fac = self.fac
+        pw, dd = fac.pier_width, fac.depth
+        h = rnd(self.mass.params["height"] - (from_floor - self.mass.floor) * fac.floor_height)
         params = {"width": rnd(pw), "depth": dd, "height": h}
         recipe, front = "pier.strip", 0.0
         if order == "pilaster" and flutes(rho):
             recipe = "pier.fluted"
             params |= {"flutes": flutes(rho), "reed": REED}
-        elif order == "pier" and self.fac.pilaster_every:
-            front = MINOR_SETBACK
-            params["front"] = front
+        elif order == "pier" and fac.axis == "horizontal":
+            front = params["front"] = fac.pier_depth
+            first = max(shaft.start, from_floor)
+            if shaft.stop > first:  # up the shaft: glass behind each floor's band
+                recipe, front = "pier.banded", BAND_FRONT
+                params |= {
+                    "glass": rnd(fac.pier_depth + fac.recess),
+                    "band": BAND_FRONT,
+                    "floor_height": fac.floor_height,
+                    "sill": rnd(fac.floor_height * (0.55 - 0.45 * fac.density)),
+                    "bands": [first - from_floor, shaft.stop - first],
+                }
+        elif order == "pier" and fac.pilaster_every:
+            front = params["front"] = MINOR_SETBACK
         extent = ((rnd(-pw / 2), front, 0.0), (rnd(pw / 2), dd, h))
         axes = [self.axis("pier", lines.start, len(lines), lines.step)]
         return [
@@ -584,7 +635,7 @@ def dress(
         named = defaultdict(int)
         for (order, start), lines in sorted(groups.items()):
             for run in progressions(lines, k):
-                out += face.piers(f"{order}s.{named[order]}", run, start, order, rho)
+                out += face.piers(f"{order}s.{named[order]}", run, start, order, rho, zones[1][1])
                 named[order] += 1
 
         for zone, zone_floors in zones:

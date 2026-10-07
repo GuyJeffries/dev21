@@ -141,6 +141,24 @@ def _pier_strip(p: dict) -> list[Box]:
     return [((-w, p.get("front", 0.0), 0), (w, p["depth"], p["height"]), "stone")]
 
 
+def _pier_banded(p: dict) -> list[Box]:
+    """A pier on a horizontal axis. Up the shaft (`bands`: [first floor, count], from the
+    pier's foot) it is glass at the glass line, carrying each floor's stone spandrel band
+    across the bay line, so the windows read as continuous ribbons; above and below, stone
+    standing back to `front`."""
+    w, fh, sill, dd = p["width"] / 2, p["floor_height"], p["sill"], p["depth"]
+    first, count = p["bands"]
+    z0, z1 = first * fh, (first + count) * fh
+    boxes = [((-w, p["glass"], z0), (w, dd, z1), "glass")]
+    if z0 > 0:
+        boxes.append(((-w, p["front"], 0), (w, dd, z0), "stone"))
+    if z1 < p["height"]:
+        boxes.append(((-w, p["front"], z1), (w, dd, p["height"]), "stone"))
+    for k in range(first, first + count):
+        boxes.append(((-w, p["band"], k * fh), (w, p["glass"], k * fh + sill), "stone"))
+    return boxes
+
+
 def _pier_fluted(p: dict) -> list[Box]:
     """A pilaster faced with reeds: flutes + 1 ribs standing `reed` proud of its face, with
     a flute between each pair."""
@@ -169,12 +187,16 @@ def _window_deco_tall(p: dict) -> list[Box]:
     """A glazed channel between two piers: dark spandrel below, glass above, bronze mullions
     and a transom bar between them. Nothing stone stands between the piers, so stacked
     windows form continuous vertical channels and the piers read as unbroken ribs.
+
+    With `band` (window.deco_band, a horizontal axis) the spandrel is a stone band standing
+    forward to `band`, which banded piers carry on across the bay lines.
     """
     cw, h, recess, sill = p["width"] / 2, p["height"], p["recess"], p["sill"]
     back = p["front"] + recess
     bar = MULLION_DEPTH
+    spandrel = (p["band"], "stone") if "band" in p else (p["front"] + recess / 2, "spandrel")
     boxes = [
-        ((-cw, p["front"] + recess / 2, 0), (cw, back + p["glass"], sill), "spandrel"),
+        ((-cw, spandrel[0], 0), (cw, back + p["glass"], sill), spandrel[1]),
         ((-cw, back, sill), (cw, back + p["glass"], h), "glass"),
         ((-cw, back - bar, sill), (cw, back, sill + 0.08), "metal"),
     ]
@@ -250,6 +272,17 @@ def _window_channel(p: dict) -> list[Box]:
     """A bay column of a window block at L2: one box, glass up a shaft, stone elsewhere."""
     w = p["width"] / 2
     return [((-w, p["front"], 0), (w, p["depth"], p["height"]), p["material"])]
+
+
+def _window_channel_banded(p: dict) -> list[Box]:
+    """A bay column of a horizontal shaft at L2: a stone band and a glass strip per floor."""
+    w, fh, sill = p["width"] / 2, p["floor_height"], p["sill"]
+    boxes = []
+    for k in range(round(p["height"] / fh)):
+        z = k * fh
+        boxes.append(((-w, p["front"], z), (w, p["depth"], z + sill), "stone"))
+        boxes.append(((-w, p["glass"], z + sill), (w, p["depth"], z + fh), "glass"))
+    return boxes
 
 
 def _merlon_stepped(p: dict) -> list[Box]:
@@ -374,11 +407,14 @@ RECIPES: dict[str, Callable[[dict], list[Part]]] = {
     "pier.inner": _pier_inner,
     "pier.strip": _pier_strip,
     "pier.fluted": _pier_fluted,
+    "pier.banded": _pier_banded,
     "pier.corner": _pier_corner,
     "window.deco_tall": _window_deco_tall,
+    "window.deco_band": _window_deco_tall,
     "window.deco_capital": _window_deco_capital,
     "window.deco_base": _window_deco_base,
     "window.channel": _window_channel,
+    "window.channel_banded": _window_channel_banded,
     "entrance.deco_main": _entrance_deco_main,
     "crown.stepped": _crown_stepped,
     "bridge.gallery": _bridge_gallery,

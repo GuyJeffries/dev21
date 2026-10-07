@@ -12,7 +12,11 @@ Sizes come from the room the central tower and the podium leave; heights are a s
 the central tower's, falling off ring by ring; outer-ring pavilions fill their terrace
 but stay squat and stand lower, so the building builds up towards the central spire.
 Setbacks follow the central tower's rhythm.
-The central building constrains the towers, never the reverse.
+The central building constrains the towers, never the reverse. No secondary tower is more
+slender than the central tower, and pavilions stand lower than every sister tower.
+
+Style (Phase 4): the hierarchy setting scales secondary heights, sizes and gaps; with no
+symmetry, twins draw their own decisions and slots fill singly.
 
 Ring 0's bridges, and the transfer bands under them, share one floor: a horizontal datum
 tying the sister towers to the central tower. Every tower ends in a crown; only the central
@@ -26,6 +30,7 @@ from arcology.plan import Element
 from arcology.rules import (
     DETAIL,
     EVERY_LEVEL,
+    HIERARCHY,
     ROOT,
     STRUCTURE,
     ResolveError,
@@ -63,7 +68,6 @@ PAIRS = {
 }
 FACE_ROTATION = {"south": 0.0, "east": 90.0, "north": 180.0, "west": 270.0}
 
-RANK_FALLOFF = 0.12  # each rank (ring) of tower is this much shorter, as a share
 PAVILION_SHARE = 0.45  # outer-ring pavilions are this share of a sister tower's height
 PAVILION_SLENDERNESS = 3.0  # and at most this many times as tall as they are wide
 SETBACK_AT = 0.72  # secondary towers step in once, this far up
@@ -107,14 +111,32 @@ class Tower:
     anchor: Element | None = None  # the mass it bridges to
 
 
-def _groups(count: int, placement: str, available) -> list[tuple[str, ...]]:
+@dataclass
+class _Planned:
+    """A secondary tower decided but not yet built: its height may still be lowered."""
+
+    slot: Slot
+    seed: int
+    size: float
+    floors: int
+    anchor: Element
+    stands_on: Element
+    offset: float | None
+
+
+def _groups(count: int, placement: str, available, paired: bool = True) -> list[tuple[str, ...]]:
     """Slot groups for `count` towers: an axis tower first if the count is odd, then pairs.
-    Groups whose ring has no room are skipped."""
+    Unpaired (no symmetry), slots fill one by one in the same order, axis towers last, so an
+    odd count leaves a tower without its twin. Groups whose ring has no room are skipped."""
     groups: list[tuple[str, ...]] = []
     axis = [a for a in AXIS if available(Slot.parse(a))]
-    if count % 2 and axis:
+    if not paired:
+        slots = [name for pair in PAIRS[placement] for name in pair] + axis
+        groups = [(name,) for name in slots if available(Slot.parse(name))][:count]
+        axis = []
+    elif count % 2 and axis:
         groups.append((axis.pop(0),))
-    for pair in PAIRS[placement]:
+    for pair in PAIRS[placement] if paired else []:
         if count - sum(map(len, groups)) >= 2 and available(Slot.parse(pair[0])):
             groups.append(pair)
     while sum(map(len, groups)) < count and axis:
@@ -136,24 +158,33 @@ def secondary_towers(spec: Spec, podium: list[Element], central: tuple[Element, 
         return []
     base, top = central[0], podium[-1]
     cw, cd = base.params["width"], base.params["depth"]
-    share = sample(st.size, ts, "size")
+    hierarchy = HIERARCHY[spec.style.hierarchy]
+    bilateral = spec.style.symmetry == "bilateral"
 
-    def fit(room: float) -> float:
+    def drawn_share(seed: int) -> float:
+        """The size share; a weaker hierarchy pulls it towards the whole room."""
+        share = sample(st.size, seed, "size")
+        return share + (1 - share) * hierarchy.pull
+
+    def fit(room: float, share: float) -> float:
         """Share of the room in whole bays; never below 2 bays if the room allows 2."""
         if room < 2 * bay:
             return 0.0
         return max(2 * bay, math.floor(share * room / bay + 1e-9) * bay)
 
-    # Ring 0: the widest gap (up to the drawn one) that still leaves room for a 2-bay tower.
-    inner_size, gap = 0.0, 0.0
-    for g in range(sample(st.gap, ts, "gap", integer=True), 0, -1):
+    # Ring 0: the widest gap (up to the drawn one, less as the hierarchy weakens) that still
+    # leaves room for a 2-bay tower.
+    share = drawn_share(ts)
+    widest = sample(st.gap, ts, "gap", integer=True)
+    inner_room, inner_size, gap = 0.0, 0.0, 0.0
+    for g in range(round(widest - (widest - 1) * hierarchy.pull), 0, -1):
         room = min(
             top.params["width"] / 2 - bay - cw / 2 - g * bay,
             top.params["depth"] / 2 - bay - cd / 2 - g * bay,
             min(cw, cd) - 2 * bay,
         )
-        if fit(room) >= 2 * bay:
-            inner_size, gap = fit(room), g * bay
+        if fit(room, share) >= 2 * bay:
+            inner_room, inner_size, gap = room, fit(room, share), g * bay
             break
     # Outer rings: the terrace between two tiers, less a bay of margin each side.
     terrace = [
@@ -172,26 +203,45 @@ def secondary_towers(spec: Spec, podium: list[Element], central: tuple[Element, 
             return inner_size >= 2 * bay
         return slot.ring < len(podium) and outer_size >= 2 * bay
 
+    # Heights: a share of the central tower's, falling off ring by ring as the hierarchy
+    # sets, never so tall the central tower stops dominating, and never more slender than it.
     central_floors = sum(round(s.params["height"] / fh) for s in central)
-    towers = []
-    for group in _groups(count, st.placement, available):
-        slot0 = Slot.parse(group[0])
-        gseed = derive_seed(ts, group[0])
-        ratio = sample(st.height_ratio, gseed, "height_ratio") * (1 - RANK_FALLOFF * slot0.rank)
-        floors = max(4, round(ratio * central_floors))
-        if slot0.ring:  # pavilions: lower, and never more than PAVILION_SLENDERNESS x wide
-            cap = round(PAVILION_SLENDERNESS * outer_size / fh)
-            floors = max(4, min(round(ratio * PAVILION_SHARE * central_floors), cap))
+    tallest = math.floor(central_floors / hierarchy.dominance + 1e-9)
+    slender = sum(s.params["height"] for s in central) / min(cw, cd)
+    planned: list[_Planned] = []
+    for group in _groups(count, st.placement, available, paired=bilateral):
         for name in group:
             slot = Slot.parse(name)
+            # Mirror twins share every decision through the group's seed, unless asymmetric.
+            seed = derive_seed(ts, group[0] if bilateral else name)
+            ratio = sample(st.height_ratio, seed, "height_ratio") * hierarchy.height
+            ratio *= 1 - hierarchy.falloff * slot.rank
             if slot.ring == 0:
-                anchor, stands_on, size, offset = base, top, inner_size, gap
-            else:
+                # Asymmetric twins draw their own size within the same room.
+                size = inner_size if bilateral else fit(inner_room, drawn_share(seed))
+                anchor, stands_on, offset = base, top, gap
+                floors, most = round(ratio * central_floors), slender
+            else:  # pavilions: lower, and squat
                 k = len(podium) - 1 - slot.ring
                 anchor, stands_on, size = podium[k + 1], podium[k], outer_size
                 offset = None  # centred on the terrace
-            towers.append(_tower(spec, slot, gseed, size, floors, anchor, stands_on, offset, inset))
-    return towers
+                floors = round(ratio * PAVILION_SHARE * central_floors)
+                most = min(slender, PAVILION_SLENDERNESS)
+            floors = max(4, min(floors, math.floor(most * size / fh + 1e-9), tallest))
+            planned.append(_Planned(slot, seed, size, floors, anchor, stands_on, offset))
+
+    # Pavilions stand lower than every sister tower, even one its proportions keep short.
+    def roof(m: Element) -> int:
+        return m.floor + round(m.params["height"] / fh)
+
+    sisters = [roof(t.stands_on) + t.floors for t in planned if t.slot.ring == 0]
+    for t in planned:
+        if t.slot.ring and sisters:
+            t.floors = max(4, min(t.floors, min(sisters) - roof(t.stands_on) - 1))
+    return [
+        _tower(spec, t.slot, t.seed, t.size, t.floors, t.anchor, t.stands_on, t.offset, inset)
+        for t in planned
+    ]
 
 
 def _tower(spec, slot, gseed, size, floors, anchor, stands_on, gap, inset) -> Tower:

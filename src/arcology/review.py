@@ -21,11 +21,19 @@ from PIL import Image, ImageDraw, ImageFont
 
 from arcology.assemble import assemble
 from arcology.build import build_library
-from arcology.metrics import failures, measure
+from arcology.metrics import (
+    ORNAMENT_CAP,
+    PODIUM_SHARE,
+    SLENDERNESS,
+    SPIRE_SHARE,
+    TAPER,
+    failures,
+    measure,
+)
 from arcology.plan import Plan, element_bounds, instances, plan_bounds
 from arcology.resolve import resolve
 from arcology.rules import CENTRAL
-from arcology.spec import Spec
+from arcology.spec import Spec, spec_with
 
 # Fixed seeds rendered on every pull request, so before/after sheets are comparable.
 GOLDEN_SEEDS = (11, 23, 37, 41, 53, 67, 71, 89, 97, 101, 113, 127)
@@ -182,20 +190,33 @@ def _label(result: dict) -> tuple[str, str]:
 
 
 def _montage(
-    labels: list[tuple[str, str, bool]], tiles: list[Path], out: Path, size, cols: int
+    labels: list[tuple[str, str, bool]],
+    tiles: list[Path | None],
+    out: Path,
+    size,
+    cols: int,
+    *,
+    compact: bool = False,
 ) -> None:
-    """Tiles in a grid, each with two caption lines; the second is red when `bad`."""
+    """Tiles in a grid, each with two caption lines (one if `compact`); the second, or the
+    only one, is red when `bad`. A None tile leaves its cell blank."""
     tw, th = size
-    strip = 34
+    strip = 17 if compact else 34
     rows = math.ceil(len(tiles) / cols)
     sheet = Image.new("RGB", (cols * tw, rows * (th + strip)), "white")
     draw = ImageDraw.Draw(sheet)
-    font = ImageFont.load_default(size=13)
+    font = ImageFont.load_default(size=11 if compact else 13)
     for i, ((top, bottom, bad), tile) in enumerate(zip(labels, tiles, strict=True)):
+        if tile is None:
+            continue
         x, y = (i % cols) * tw, (i // cols) * (th + strip)
         sheet.paste(Image.open(tile).convert("RGB"), (x, y))
+        colour = "darkred" if bad else "dimgray"
+        if compact:
+            draw.text((x + 4, y + th + 2), f"{top} {bottom}".strip(), fill=colour, font=font)
+            continue
         draw.text((x + 6, y + th + 3), top, fill="black", font=font)
-        draw.text((x + 6, y + th + 18), bottom, fill="darkred" if bad else "dimgray", font=font)
+        draw.text((x + 6, y + th + 18), bottom, fill=colour, font=font)
     sheet.save(out, "JPEG", quality=82, optimize=True, progressive=True)
 
 
@@ -306,3 +327,165 @@ def detail_sheet(
             labels.append((f"seed {seed}  {name}", captions[name], False))
             tiles.append(path)
     _montage(labels, tiles, out_dir / "detail_sheet.jpg", tile, columns)
+
+
+# Sweeps: one parameter varied along a row, everything else fixed (docs/PLAN.md section 20).
+# A golden seed whose broad sister towers show the hierarchy and symmetry settings plainly
+# (on seed 11 narrow sisters, capped by their proportions, hid both).
+SWEEP_SEED = 37
+STYLE_SWEEPS = (
+    ("style.setback_strength", ["high", "medium", "low"]),
+    ("style.hierarchy", ["strong", "moderate", "weak"]),
+    ("style.dominant_axis", ["vertical", "horizontal"]),
+    ("style.ornament_density", [0.0, 0.35, 0.65, 1.0]),
+    ("style.symmetry", ["bilateral", "none"]),
+    ("style.repetition", ["regular", "varied"]),
+    ("style.termination", ["spire", "stepped", "flat"]),
+)
+
+
+def _short(value) -> str:
+    return f"{value:g}" if isinstance(value, float) else str(value)
+
+
+def sweep_markdown(rows: list[dict], seed: int, lod: str) -> str:
+    lines = [
+        f"### Sweep sheet: seed {seed}, {lod}",
+        "",
+        "| parameter | value | height (m) | towers | dominance | slenderness | taper "
+        "| ornament c / s / pod | windows | checks |",
+        "|---|---|---:|---:|---:|---:|---:|---|---:|---|",
+    ]
+    for r in rows:
+        failed = failures(r)
+        orn = " / ".join(
+            f"{r['ornament'][s]:.2f}" if s in r["ornament"] else "–"
+            for s in ("central", "sister", "podium")
+        )
+        lines.append(
+            f"| {r['parameter']} | {_short(r['value'])} | {r['height_m']:.0f} | {r['towers']} "
+            f"| {r['dominance'] or '–'} | {r['style']['slenderness']} | {r['style']['taper']} "
+            f"| {orn} | {r['windows']:,} | {'FAIL: ' + ', '.join(failed) if failed else 'ok'} |"
+        )
+    return "\n".join(lines) + "\n"
+
+
+def sweep_sheet(
+    spec: Spec,
+    sweeps,
+    out_dir: str | Path,
+    *,
+    seed: int = SWEEP_SEED,
+    tile: tuple[int, int] = (320, 240),
+    samples: int = 12,
+    lod: str = "L2",
+) -> list[dict]:
+    """One row per (parameter, values): the same seed with the parameter set to each value in
+    turn, all framed by one camera so sizes compare. Writes sweep_sheet.jpg and metrics."""
+    out_dir = Path(out_dir)
+    out_dir.mkdir(parents=True, exist_ok=True)
+    cols = max(len(values) for _, values in sweeps)
+    cells = []  # (parameter, value, plan) or None for a blank cell
+    for parameter, values in sweeps:
+        for value in values:
+            plan = resolve(replace(spec_with(spec, parameter, value), seed=seed))
+            cells.append((parameter, value, plan))
+        cells += [None] * (cols - len(values))
+    camera = shared_camera([c[2] for c in cells if c])
+    results, labels, tiles = [], [], []
+    for i, cell in enumerate(cells):
+        if cell is None:
+            labels.append(("", "", False))
+            tiles.append(None)
+            continue
+        parameter, value, plan = cell
+        cell_dir = out_dir / f"cell-{i:02d}"
+        cell_dir.mkdir(exist_ok=True)
+        build_library(plan, cell_dir, lod)
+        render_tile(cell_dir / "manifest.json", cell_dir / "tile.png", camera, tile, samples)
+        result = {"parameter": parameter, "value": value, "seed": seed, **measure(plan)}
+        results.append(result)
+        failed = failures(result)
+        top = f"{parameter.split('.')[-1]} = {_short(value)}"
+        bottom = "FAIL " + ", ".join(failed) if failed else f"{result['height_m']:.0f} m"
+        labels.append((top, bottom, bool(failed)))
+        tiles.append(cell_dir / "tile.png")
+    _montage(labels, tiles, out_dir / "sweep_sheet.jpg", tile, cols)
+    (out_dir / "sweep.json").write_text(json.dumps(results, indent=2) + "\n")
+    (out_dir / "sweep.md").write_text(sweep_markdown(results, seed, lod))
+    return results
+
+
+# Batch: many seeds as silhouettes, to judge whether the style holds (Phase 4's done-when).
+BATCH_RANGES = (
+    ("height (m)", lambda r: r["height_m"], None),
+    ("towers", lambda r: r["towers"], None),
+    ("dominance", lambda r: r["dominance"], "≥ the hierarchy's target"),
+    ("slenderness", lambda r: r["style"]["slenderness"], f"{SLENDERNESS[0]:g}–{SLENDERNESS[1]:g}"),
+    (
+        "secondary slenderness",
+        lambda r: r["style"]["secondary_slenderness"],
+        "≤ the central tower's",
+    ),
+    ("taper", lambda r: r["style"]["taper"], f"{TAPER[0]:g}–{TAPER[1]:g}"),
+    (
+        "podium share",
+        lambda r: r["style"]["podium_share"],
+        f"{PODIUM_SHARE[0]:g}–{PODIUM_SHARE[1]:g}",
+    ),
+    ("spire share", lambda r: r["style"]["spire_share"], f"≤ {SPIRE_SHARE:g}"),
+    ("ornament, central", lambda r: r["ornament"].get("central"), f"≤ {ORNAMENT_CAP:g}"),
+)
+
+
+def batch_markdown(results: list[dict], lod: str) -> str:
+    failing: dict[str, list[int]] = {}
+    for r in results:
+        for name in failures(r):
+            failing.setdefault(name, []).append(r["seed"])
+    lines = [f"### Batch: {len(results)} seeds, {lod}", ""]
+    if failing:
+        lines += [f"- **{name}** fails on seeds {seeds}" for name, seeds in sorted(failing.items())]
+    else:
+        lines.append("Every seed passes every check, the style envelope included.")
+    lines += ["", "| measure | min | median | max | envelope |", "|---|---:|---:|---:|---|"]
+    for name, get, envelope in BATCH_RANGES:
+        values = sorted(v for v in map(get, results) if v is not None)
+        if values:
+            mid = values[len(values) // 2]
+            lines.append(
+                f"| {name} | {values[0]:g} | {mid:g} | {values[-1]:g} | {envelope or ''} |"
+            )
+    return "\n".join(lines) + "\n"
+
+
+def batch_sheet(
+    spec: Spec,
+    seeds,
+    out_dir: str | Path,
+    *,
+    tile: tuple[int, int] = (160, 120),
+    cols: int = 10,
+    samples: int = 8,
+    lod: str = "L3",
+) -> list[dict]:
+    """Many seeds, small and at L3 by default (masses and crowns: the silhouette), under one
+    camera, with compact captions and the style envelope's ranges across the batch."""
+    out_dir = Path(out_dir)
+    out_dir.mkdir(parents=True, exist_ok=True)
+    plans = [resolve(replace(spec, seed=s)) for s in seeds]
+    camera = shared_camera(plans)
+    results, labels, tiles = [], [], []
+    for plan in plans:
+        seed_dir = out_dir / f"seed-{plan.seed}"
+        build_library(plan, seed_dir, lod)
+        render_tile(seed_dir / "manifest.json", seed_dir / "tile.png", camera, tile, samples)
+        result = {"seed": plan.seed, **measure(plan)}
+        results.append(result)
+        failed = failures(result)
+        labels.append((str(plan.seed), "FAIL " + ", ".join(failed) if failed else "", bool(failed)))
+        tiles.append(seed_dir / "tile.png")
+    _montage(labels, tiles, out_dir / "batch_sheet.jpg", tile, min(cols, len(tiles)), compact=True)
+    (out_dir / "batch.json").write_text(json.dumps(results, indent=2) + "\n")
+    (out_dir / "batch.md").write_text(batch_markdown(results, lod))
+    return results

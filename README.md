@@ -12,6 +12,8 @@ Blender runs headless as a Python module (`bpy` from PyPI); no Blender install i
 uv sync                                                        # Python 3.13, bpy 5.2.2, Pillow
 uv run arcology sheet specs/default.json -o build/review       # contact sheet of 12 golden seeds (L2)
 uv run arcology detail specs/default.json -o build/detail      # close-ups of 3 seeds (L0): entrance, cluster, setback, crown
+uv run arcology sweep specs/default.json -o build/sweep        # each style setting along a row, one seed (L2)
+uv run arcology batch specs/default.json -o build/batch        # 100 seeds as silhouettes (L3), style envelope ranges
 uv run arcology resolve specs/default.json --seed 7 -o plan.json
 uv run arcology build plan.json -o build/seed-7 --lod L2
 ./scripts/check.sh                                             # lint, format check, tests
@@ -43,4 +45,9 @@ spec (specs/*.json) → resolve (plain Python) → plan.json
   density that follows the hierarchy (central tower richest). Window channels at L2 keep the zones legible at a
   distance. Checks for cornices and ornament hierarchy; bridges now also meet walls, not notches.
 
-Next is Phase 4: style and variation (style parameters, sweep sheets, a 100-seed style check).
+- **Phase 4 (style and variation):** every style setting changes the building (symmetry, dominant axis with a
+  streamline variant of glass ribbons and stone bands, hierarchy, ornament density, setback strength, repetition,
+  termination). A style envelope checks every seed for drift (needles, stubs, slabs, missing base, oversized
+  spires, ornament noise). Sweep sheets show one setting per row; a 100-seed batch sheet shows the family holds.
+
+Next is Phase 5: representation levels (L0 to L3 with budgets, distance sheets).

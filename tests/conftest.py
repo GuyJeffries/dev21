@@ -23,6 +23,12 @@ def plan(spec):
 
 
 @pytest.fixture(scope="session")
+def horizontal(spec):
+    """The same building with a horizontal dominant axis, which has recipes of its own."""
+    return resolve(replace(spec, seed=3, style=replace(spec.style, dominant_axis="horizontal")))
+
+
+@pytest.fixture(scope="session")
 def built(plan, tmp_path_factory):
     from arcology.build import build_library
 

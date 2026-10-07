@@ -138,7 +138,7 @@ def test_resolved_plan_passes_every_check():
         ),
         (
             lambda: _taller(EAST, 500.0),
-            {"dominant", "facade_complete", "stacked", "symmetric", "corniced"},
+            {"dominant", "facade_complete", "stacked", "symmetric", "corniced", "proportioned"},
         ),
         (lambda: _shift_bridge(1.0), {"connected", "floor_aligned", "symmetric"}),
         (lambda: _shift_window_block(), {"dressed", "symmetric"}),

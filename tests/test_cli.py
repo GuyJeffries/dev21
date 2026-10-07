@@ -1,5 +1,8 @@
+import argparse
 import json
 from pathlib import Path
+
+import pytest
 
 from arcology.__main__ import main
 
@@ -38,3 +41,17 @@ def test_impossible_building_exits_2(tmp_path, capsys):
     bad.write_text(json.dumps({"schema": "arcology-spec/0", "central_tower": {"width": 900}}))
     assert main(["resolve", str(bad)]) == 2
     assert "doesn't fit" in capsys.readouterr().err
+
+
+def test_sweep_rows_parse_numbers_and_words():
+    from arcology.__main__ import _sweep
+
+    assert _sweep("style.ornament_density=0,0.5,1") == ("style.ornament_density", [0, 0.5, 1])
+    assert _sweep("style.hierarchy=strong,weak") == ("style.hierarchy", ["strong", "weak"])
+    with pytest.raises(argparse.ArgumentTypeError):
+        _sweep("style.hierarchy")
+
+
+def test_sweep_with_a_bad_parameter_exits_2(capsys):
+    assert main(["sweep", SPEC, "--set", "style.colour=red"]) == 2
+    assert "unknown field 'colour'" in capsys.readouterr().err

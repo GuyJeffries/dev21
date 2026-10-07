@@ -11,11 +11,19 @@ import math
 from collections import Counter
 
 from arcology.plan import LODS, Element, Plan, element_bounds, element_key, plan_bounds
-from arcology.rules import CENTRAL, in_outline, outline, standing
+from arcology.rules import CENTRAL, HIERARCHY, in_outline, outline, standing
 
-DOMINANCE = 1.3  # central tower floors / tallest secondary tower's, at least
 MAX_SPAN = 30.0  # metres a bridge may span
-HIERARCHY = ("central", "sister", "pavilion")  # ornament must not increase down this order
+RANKING = ("central", "sister", "pavilion")  # ornament must not increase down this order
+
+# Style envelope (Phase 4): outside these a building drifts from Art Deco, towards a needle
+# or spike (Gothic, fantasy), a slab with no setbacks, a tower with no base, or ornament
+# turned to noise.
+SLENDERNESS = (2.0, 8.0)  # central tower height over its base's narrower side
+TAPER = (0.25, 0.95)  # its top section's narrower side over its base's: it steps back
+PODIUM_SHARE = (0.08, 0.45)  # podium floors as a share of all floors
+SPIRE_SHARE = 0.25  # at most this share of the central tower's height
+ORNAMENT_CAP = 2.5  # ornament pieces per facade cell, on any standing
 
 
 def _whole(x: float, module: float) -> bool:
@@ -233,7 +241,7 @@ def ornament(plan: Plan, masses: list[Element]) -> dict[str, float]:
 
 def _ornament_hierarchy(plan: Plan, masses: list[Element]) -> bool:
     """No standing carries an ornament system more richly than the standing above it, down
-    the HIERARCHY: the most chevrons on a capital window, fluted pilasters, and merlons on
+    the RANKING: the most chevrons on a capital window, fluted pilasters, and merlons on
     parapets. A system is compared only where both standings have somewhere to carry it
     (capital windows, pilasters, parapets over pilasters). Per-cell density (`ornament`)
     varies with how many pilasters fit a facade, so it is reported rather than checked."""
@@ -258,7 +266,7 @@ def _ornament_hierarchy(plan: Plan, masses: list[Element]) -> bool:
             carry(s, "flutes", e.params.get("flutes", 0))
         elif e.kind == "merlon":
             carry(s, "merlons", 1)
-    ranked = [s for s in HIERARCHY if s in of.values()]
+    ranked = [s for s in RANKING if s in of.values()]
     return all(
         level[a, system] >= level[b, system]
         for a, b in zip(ranked, ranked[1:], strict=False)
@@ -292,6 +300,31 @@ def _crowned(plan: Plan, stacks: list[list[Element]]) -> bool:
     return True
 
 
+def _style(plan: Plan, central, towers, tower_floors: int, podium_floors: int) -> dict:
+    """The proportions the style envelope bounds (see SLENDERNESS and the rest)."""
+
+    def slender(sections):
+        height = sum(s.params["height"] for s in sections)
+        return height / min(sections[0].params["width"], sections[0].params["depth"])
+
+    narrow = [min(s.params["width"], s.params["depth"]) for s in central]
+    spires = [e for e in plan.elements if e.kind == "crown" and e.params.get("spire_height", 0) > 0]
+    height = sum(s.params["height"] for s in central)
+    secondary = [slender(stack[1:]) for stack in towers if stack[1].tags["tower"] != CENTRAL]
+    return {
+        "slenderness": round(slender(central), 2) if central else 0.0,
+        "secondary_slenderness": round(max(secondary, default=0.0), 2),
+        "taper": round(narrow[-1] / narrow[0], 2) if central else 0.0,
+        "podium_share": round(podium_floors / max(1, podium_floors + tower_floors), 3),
+        "spires": len(spires),
+        "spire_share": round(
+            max((e.params["spire_height"] / height for e in spires), default=0.0), 3
+        )
+        if central
+        else 0.0,
+    }
+
+
 def measure(plan: Plan) -> dict:
     fh, bay = plan.floor_height, plan.bay_width
     masses = [e for e in plan.elements if e.kind == "mass"]
@@ -321,6 +354,8 @@ def measure(plan: Plan) -> dict:
 
     base = central[0].params if central else {"width": 0, "depth": 0}
     tower_floors = floors(central)
+    style = _style(plan, central, stacks[1:], tower_floors, floors(stacks[0]))
+    density = ornament(plan, masses)
     dominance = round(tower_floors / max(secondary.values()), 2) if secondary else None
     checks = {
         "floor_aligned": all(_whole(e.translation[2], fh) for e in plan.elements)
@@ -344,12 +379,22 @@ def measure(plan: Plan) -> dict:
         "dressed": _dressed(plan, masses),
         "corniced": _corniced(plan, masses),
         "ornament_hierarchy": _ornament_hierarchy(plan, masses),
-        "symmetric": _symmetric(plan),
+        # Mirror symmetry is only required of bilateral styles.
+        "symmetric": plan.style.get("symmetry", "bilateral") != "bilateral" or _symmetric(plan),
         "entrance": _entrance(plan, stacks[0]),
-        "dominant": dominance is None or dominance >= DOMINANCE,
+        "dominant": dominance is None
+        or dominance >= HIERARCHY[plan.style.get("hierarchy", "strong")].dominance,
         "connected": _connections(plan),
         "crowned": _crowned(plan, stacks),
         "clear": _clear(plan, masses),
+        # The style envelope.
+        "proportioned": SLENDERNESS[0] <= style["slenderness"] <= SLENDERNESS[1]
+        and style["secondary_slenderness"] <= style["slenderness"] + 1e-6,
+        "tapered": TAPER[0] <= style["taper"] <= TAPER[1],
+        "grounded": PODIUM_SHARE[0] <= style["podium_share"] <= PODIUM_SHARE[1],
+        "restrained": style["spires"] <= 1
+        and style["spire_share"] <= SPIRE_SHARE
+        and max(density.values()) <= ORNAMENT_CAP,
     }
     return {
         "height_m": round(hi[2] - lo[2], 2),
@@ -361,11 +406,10 @@ def measure(plan: Plan) -> dict:
         "dominance": dominance,
         "footprint_m": [round(hi[0] - lo[0], 2), round(hi[1] - lo[1], 2)],
         "tower_base_m": [base["width"], base["depth"]],
-        "slenderness": round(floors(central) * fh / min(base["width"], base["depth"]), 2)
-        if central
-        else 0,
+        "slenderness": style["slenderness"],
+        "style": style,
         "windows": sum(e.count for e in plan.elements if e.kind == "window"),
-        "ornament": ornament(plan, masses),
+        "ornament": density,
         "lod": lod_counts(plan),
         "checks": checks,
     }

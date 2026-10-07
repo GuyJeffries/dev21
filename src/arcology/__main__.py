@@ -4,9 +4,12 @@ arcology resolve specs/default.json --seed 7 -o plan.json    spec -> plan (no Bl
 arcology build plan.json -o build/seed-7 --lod L2            plan -> library + manifest
 arcology sheet specs/default.json -o build/review            golden seeds -> contact sheet
 arcology detail specs/default.json -o build/detail           close-ups of 3 seeds at L0
+arcology sweep specs/default.json -o build/sweep             style parameters, one per row
+arcology batch specs/default.json -o build/batch             100 seeds as silhouettes (L3)
 """
 
 import argparse
+import json
 import sys
 from dataclasses import replace
 from pathlib import Path
@@ -20,6 +23,22 @@ from arcology.spec import SpecError, load_spec
 def _size(text: str) -> tuple[int, int]:
     w, _, h = text.partition("x")
     return int(w), int(h)
+
+
+def _sweep(text: str) -> tuple[str, list]:
+    """'style.hierarchy=strong,weak' -> ("style.hierarchy", ["strong", "weak"]); values are
+    read as JSON where they parse (numbers), else as strings."""
+    path, sep, values = text.partition("=")
+    if not sep or not values:
+        raise argparse.ArgumentTypeError(f"expected PATH=V1,V2,..., got {text!r}")
+
+    def value(v: str):
+        try:
+            return json.loads(v)
+        except json.JSONDecodeError:
+            return v
+
+    return path, [value(v) for v in values.split(",")]
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -52,6 +71,31 @@ def main(argv: list[str] | None = None) -> int:
     t.add_argument("--tile", type=_size, default=(400, 300), help="tile size, e.g. 400x300")
     t.add_argument("--samples", type=int, default=24)
 
+    w = sub.add_parser("sweep", help="spec -> one parameter varied per row, one seed")
+    w.add_argument("spec", type=Path)
+    w.add_argument(
+        "--set",
+        dest="sweeps",
+        type=_sweep,
+        action="append",
+        metavar="PATH=V1,V2",
+        help="a row, e.g. style.hierarchy=strong,weak (repeatable); default: the style sweeps",
+    )
+    w.add_argument("--seed", type=int, help="default: golden seed 37")
+    w.add_argument("-o", "--out", type=Path, default=Path("build/sweep"))
+    w.add_argument("--lod", default="L2", choices=LODS)
+    w.add_argument("--tile", type=_size, default=(320, 240), help="tile size, e.g. 320x240")
+    w.add_argument("--samples", type=int, default=12)
+
+    a = sub.add_parser("batch", help="spec -> many seeds as small silhouettes, with ranges")
+    a.add_argument("spec", type=Path)
+    a.add_argument("--count", type=int, default=100, help="seeds 0..count-1")
+    a.add_argument("-o", "--out", type=Path, default=Path("build/batch"))
+    a.add_argument("--lod", default="L3", choices=LODS)
+    a.add_argument("--tile", type=_size, default=(160, 120), help="tile size, e.g. 160x120")
+    a.add_argument("--cols", type=int, default=10)
+    a.add_argument("--samples", type=int, default=8)
+
     args = parser.parse_args(argv)
     try:
         if args.command == "resolve":
@@ -76,7 +120,45 @@ def main(argv: list[str] | None = None) -> int:
             print(f"{args.out}: {unique} unique elements, {placed} instances")
             return 0
 
-        from arcology.review import GOLDEN_SEEDS, contact_sheet, detail_sheet  # imports Blender
+        from arcology.review import (  # imports Blender
+            GOLDEN_SEEDS,
+            STYLE_SWEEPS,
+            SWEEP_SEED,
+            batch_sheet,
+            contact_sheet,
+            detail_sheet,
+            sweep_sheet,
+        )
+
+        if args.command == "sweep":
+            results = sweep_sheet(
+                load_spec(args.spec),
+                args.sweeps or STYLE_SWEEPS,
+                args.out,
+                seed=SWEEP_SEED if args.seed is None else args.seed,
+                tile=args.tile,
+                samples=args.samples,
+                lod=args.lod,
+            )
+            failed = [f"{r['parameter']}={r['value']}" for r in results if failures(r)]
+            sheet = args.out / "sweep_sheet.jpg"
+            print(f"{sheet}: {len(results)} tiles, failing: {failed or 'none'}")
+            return 1 if failed else 0
+
+        if args.command == "batch":
+            results = batch_sheet(
+                load_spec(args.spec),
+                range(args.count),
+                args.out,
+                tile=args.tile,
+                cols=args.cols,
+                samples=args.samples,
+                lod=args.lod,
+            )
+            failed = [r["seed"] for r in results if failures(r)]
+            sheet = args.out / "batch_sheet.jpg"
+            print(f"{sheet}: {len(results)} seeds, failing: {failed or 'none'}")
+            return 1 if failed else 0
 
         if args.command == "detail":
             seeds = args.seeds or GOLDEN_SEEDS[:3]

@@ -2,6 +2,7 @@
 
 import math
 from dataclasses import dataclass
+from typing import NamedTuple
 
 from arcology.plan import Element
 from arcology.seeds import rng
@@ -15,6 +16,35 @@ STRUCTURE = ("L0", "L1", "L2")
 DISTANT = ("L2",)  # stand-ins for detail that drops out at L2
 ENVELOPE = ("L3",)
 EVERY_LEVEL = ("L0", "L1", "L2", "L3")
+
+
+class Hierarchy(NamedTuple):
+    """How strongly the central tower dominates (style.hierarchy)."""
+
+    height: float  # secondary tower heights, as a multiple of the drawn height ratio
+    falloff: float  # each rank (ring) of secondary tower is this much shorter, as a share
+    spread: float  # share of the ornament differences between standings that is kept
+    dominance: float  # central tower floors / tallest secondary tower's, at least
+    pull: float  # how far sister towers' size and gap move towards the most the room allows
+
+
+# Style (docs/PLAN.md section 11): how each setting scales the grammar.
+HIERARCHY = {
+    "strong": Hierarchy(1.0, 0.12, 1.0, 1.3, 0.0),
+    "moderate": Hierarchy(1.15, 0.08, 0.6, 1.2, 0.5),
+    "weak": Hierarchy(1.3, 0.04, 0.3, 1.1, 1.0),
+}
+
+
+class Setbacks(NamedTuple):
+    """How hard towers step back (style.setback_strength). Steps are whole bays, at least one,
+    so below a point only fewer setbacks make them weaker."""
+
+    inset: float  # share of the drawn setback inset
+    every: int  # keep every n-th of the spec's setbacks, from the first
+
+
+SETBACK_STRENGTH = {"high": Setbacks(1.0, 1), "medium": Setbacks(0.6, 1), "low": Setbacks(0.6, 2)}
 
 
 class ResolveError(ValueError):

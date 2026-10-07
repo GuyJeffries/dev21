@@ -1,9 +1,9 @@
 # CLAUDE.md
 
 Procedural Art Deco arcology generator. **Read `docs/PLAN.md` before starting work**: it sets the architecture,
-conventions and phases. Phases 0 (foundations), 1 (massing and first facade), 2 (arcology composition) and 3
-(facade grammar: notched shapes, pilasters, zones, cornices, doors, ornament) are done; Phase 4 (style and
-variation) is next.
+conventions and phases. Phases 0 (foundations), 1 (massing and first facade), 2 (arcology composition), 3
+(facade grammar: notched shapes, pilasters, zones, cornices, doors, ornament) and 4 (style and variation: every
+style setting wired, style envelope, sweep and batch sheets) are done; Phase 5 (representation levels) is next.
 
 Development happens in Claude Code cloud sessions. The user reviews pull requests rather than running code, and has
 limited bandwidth: keep everything verifiable in the cloud and review evidence small (contact sheets, metric tables).
@@ -17,6 +17,11 @@ limited bandwidth: keep everything verifiable in the cloud and review evidence s
 - Close-ups at L0 (entrance, sister-tower cluster at its transfer floor, the central tower's first setback, its
   crown): `uv run arcology detail specs/default.json -o build/detail` (`detail_sheet.jpg`; about 3 minutes, since
   each building is ~25,000 placed copies at L0)
+- Sweep sheet, one parameter per row on one seed (default: every style setting):
+  `uv run arcology sweep specs/default.json -o build/sweep` (`sweep_sheet.jpg`, `sweep.md`; about 90 s); any
+  parameter with `--set style.hierarchy=strong,weak --set secondary_towers.count=0,3,6`
+- Batch of 100 seeds as L3 silhouettes, with the style envelope's ranges:
+  `uv run arcology batch specs/default.json -o build/batch` (`batch_sheet.jpg`, `batch.md`; about 60 s)
 - Spec to plan, no Blender: `uv run arcology resolve specs/default.json --seed 7 -o plan.json`
 - Plan to element library + manifest: `uv run arcology build plan.json -o build/seed-7 --lod L2`
 
@@ -31,10 +36,10 @@ limited bandwidth: keep everything verifiable in the cloud and review evidence s
 | `resolve.py` | The grammar's order: podium, central tower, secondary towers, facades, composition | No |
 | `compose.py` | Composition: secondary towers in rings, bridges, transfer bands, crowns, parapets | No |
 | `facade.py` | Facades: corners, pilasters and piers, windows by zone, portals, cornices, merlons, ornament density | No |
-| `metrics.py` | Structural checks (per-stack massing, facades, symmetry, dominance, bridges, crowns, clearance) | No |
+| `metrics.py` | Structural checks (massing, facades, symmetry, dominance, bridges, crowns, clearance), style envelope | No |
 | `build.py` | Box-built recipes; plan → element library (.glb) + placement manifest | Yes |
 | `assemble.py` | Stand-in assembler: manifest → instanced scene (expands arrays) | Yes |
-| `review.py` | Contact sheet (L2) and detail sheet (L0), Cycles CPU + Pillow, golden seeds | Yes |
+| `review.py` | Contact (L2), detail (L0), sweep (L2) and batch (L3) sheets; Cycles CPU + Pillow, golden seeds | Yes |
 
 ## Conventions
 
@@ -56,6 +61,14 @@ limited bandwidth: keep everything verifiable in the cloud and review evidence s
   `test_window_identity_survives_a_different_rhythm_and_zones`).
 - **Levels:** envelope boxes are L3; cores, piers, corners and cornices L0-L2; windows, portals, parapets and
   merlons L0-L1; window channels (one per bay column of a window block, standing in for its windows) L2 only.
+- **Style:** every `style` setting scales rules through tables (`rules.HIERARCHY`, `rules.SETBACK_STRENGTH`,
+  `facade.STANDING_ORNAMENT`), never by picking assets; docs/PLAN.md section 11 lists what each does. The plan
+  carries its style (`Plan.style`) so checks can read it: dominance targets follow the hierarchy, and mirror
+  symmetry is only required of bilateral styles. A new setting needs a sweep row (`review.STYLE_SWEEPS`) that shows
+  it doing something; three settings first passed every test while changing nothing visible.
+- **Style envelope:** `proportioned`, `tapered`, `grounded`, `restrained` (bounds in `metrics.py`) keep every seed
+  and setting recognisably Art Deco. No secondary tower is ever more slender than the central tower, and
+  pavilions stand lower than every sister tower; widen a bound only with a picture showing it still reads as Deco.
 - **Ornament:** gated by density rho = `style.ornament_density` x the mass's standing (`facade.STANDING_ORNAMENT`);
   each system switches on above a threshold. Add new ornament the same way, so it follows the hierarchy
   (`ornament_hierarchy` checks it).
@@ -93,9 +106,12 @@ limited bandwidth: keep everything verifiable in the cloud and review evidence s
   terrace pavilions. In Phase 3 the contact sheet showed none of the new zones until L2 got window channels, and
   1.5 m merlons vanished at mid range until they became 3 m pylons. When a picture shows a defect the checks
   missed, add the check.
+- Style changes: run the sweep sheet (does each setting visibly do what it says?) and the batch sheet (does every
+  seed still read as the same family?). The first horizontal facades passed every check but read as a punched
+  grid until the piers between windows gave way to glass.
 - Put in the pull request: what changed, the `./scripts/check.sh` result, metric changes, and what the sheet showed.
-  Send the sheets to the user in the session too. CI uploads both as the small `review-sheets` artifact (full
-  outputs in `review-full`) and posts `metrics.md` to the job summary.
+  Send the sheets to the user in the session too. CI uploads all four as the small `review-sheets` artifact (full
+  outputs in `review-full`) and posts `metrics.md`, `batch.md` and `sweep.md` to the job summary.
 
 ## Environment notes
 

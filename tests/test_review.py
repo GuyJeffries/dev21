@@ -5,7 +5,14 @@ from PIL import Image, ImageStat
 
 from arcology.plan import element_bounds, plan_bounds
 from arcology.resolve import resolve
-from arcology.review import contact_sheet, detail_cameras, detail_sheet, shared_camera
+from arcology.review import (
+    batch_sheet,
+    contact_sheet,
+    detail_cameras,
+    detail_sheet,
+    shared_camera,
+    sweep_sheet,
+)
 
 
 def test_shared_camera_encloses_every_plan(spec):
@@ -62,3 +69,28 @@ def test_detail_sheet_renders_four_close_ups_per_seed(spec, tmp_path):
     for name in ("entrance", "cluster", "setback", "crown"):
         tile = Image.open(tmp_path / f"seed-6/{name}.png").convert("L")
         assert ImageStat.Stat(tile).stddev[0] > 5, name
+
+
+def test_sweep_sheet_renders_one_row_per_parameter(spec, tmp_path):
+    sweeps = [("style.termination", ["spire", "flat"]), ("style.setback_strength", ["low"])]
+    results = sweep_sheet(spec, sweeps, tmp_path, seed=4, tile=(64, 48), samples=1)
+    # Rows as wide as the longest sweep; the short row's spare cell is left blank.
+    assert Image.open(tmp_path / "sweep_sheet.jpg").size == (128, 2 * (48 + 34))
+    assert [(r["parameter"], r["value"]) for r in results] == [
+        ("style.termination", "spire"),
+        ("style.termination", "flat"),
+        ("style.setback_strength", "low"),
+    ]
+    table = (tmp_path / "sweep.md").read_text()
+    assert (
+        table.startswith("### Sweep sheet: seed 4, L2") and "| style.termination | flat |" in table
+    )
+
+
+def test_batch_sheet_summarises_the_style_envelope(spec, tmp_path):
+    results = batch_sheet(spec, range(3), tmp_path, tile=(48, 36), cols=3, samples=1)
+    assert Image.open(tmp_path / "batch_sheet.jpg").size == (144, 36 + 17)
+    assert [r["seed"] for r in results] == [0, 1, 2]
+    summary = (tmp_path / "batch.md").read_text()
+    assert "Every seed passes every check" in summary
+    assert "| slenderness |" in summary and "| 2–8 |" in summary

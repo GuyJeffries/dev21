@@ -41,10 +41,11 @@ def test_manifest_has_one_row_per_plan_element_at_the_lod(plan, built):
     assert files == sorted(f"{key}.glb" for key in manifest["library"])
 
 
-def test_every_recipe_mesh_matches_its_element_extent(plan):
+def test_every_recipe_mesh_matches_its_element_extent(plan, horizontal):
     bpy.ops.wm.read_factory_settings(use_empty=True)
-    assert {e.recipe for e in plan.elements} == set(RECIPES)  # the plan exercises every recipe
-    for e in {element_key(e, "L0"): e for e in plan.elements}.values():
+    elements = [*plan.elements, *horizontal.elements]
+    assert {e.recipe for e in elements} == set(RECIPES)  # the plans exercise every recipe
+    for e in {element_key(e, "L0"): e for e in elements}.values():
         me = build_mesh(e.recipe, e.params, "probe")
         lo = [min(v.co[i] for v in me.vertices) for i in range(3)]
         hi = [max(v.co[i] for v in me.vertices) for i in range(3)]
@@ -74,9 +75,9 @@ def _faces(part):
     return out
 
 
-def test_no_two_parts_share_a_face_pointing_the_same_way(plan):
+def test_no_two_parts_share_a_face_pointing_the_same_way(plan, horizontal):
     # Coplanar, overlapping faces with the same normal flicker in a rasteriser.
-    for e in {element_key(e, "L0"): e for e in plan.elements}.values():
+    for e in {element_key(e, "L0"): e for e in (*plan.elements, *horizontal.elements)}.values():
         faces = [(i, f) for i, part in enumerate(RECIPES[e.recipe](e.params)) for f in _faces(part)]
         for j, (i, (axis, sign, c, rect)) in enumerate(faces):
             for i2, (axis2, sign2, c2, rect2) in faces[j + 1 :]:

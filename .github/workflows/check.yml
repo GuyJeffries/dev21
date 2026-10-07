@@ -30,7 +30,13 @@ jobs:
       - name: Detail sheet of three seeds (L0 close-ups)
         run: uv run arcology detail specs/default.json -o build/detail --samples 16
 
-      # Two artifacts so reviewing on a slow link means downloading ~250 KB, not every library.
+      - name: Sweep sheet of the style parameters (L2, one seed)
+        run: uv run arcology sweep specs/default.json -o build/sweep
+
+      - name: Batch of 100 seeds (L3 silhouettes, style envelope)
+        run: uv run arcology batch specs/default.json -o build/batch
+
+      # Two artifacts so reviewing on a slow link means downloading ~1 MB, not every library.
       - name: Upload review sheets and metrics
         if: always()
         uses: actions/upload-artifact@v7
@@ -41,6 +47,10 @@ jobs:
             build/review/metrics.md
             build/review/metrics.json
             build/detail/detail_sheet.jpg
+            build/sweep/sweep_sheet.jpg
+            build/sweep/sweep.md
+            build/batch/batch_sheet.jpg
+            build/batch/batch.md
 
       - name: Upload plans, element libraries and tiles
         if: always()
@@ -50,10 +60,15 @@ jobs:
           path: |
             build/review/
             build/detail/
+            build/sweep/
+            build/batch/
 
       - name: Write job summary
         if: always() && hashFiles('build/review/metrics.md') != ''
         run: |
           cat build/review/metrics.md >> "$GITHUB_STEP_SUMMARY"
+          for table in build/batch/batch.md build/sweep/sweep.md; do
+            if [ -f "$table" ]; then echo "" >> "$GITHUB_STEP_SUMMARY"; cat "$table" >> "$GITHUB_STEP_SUMMARY"; fi
+          done
           echo "" >> "$GITHUB_STEP_SUMMARY"
-          echo "Sheets: the \`review-sheets\` artifact (contact_sheet.jpg, detail_sheet.jpg). Plans, libraries and tiles: \`review-full\`." >> "$GITHUB_STEP_SUMMARY"
+          echo "Sheets: the \`review-sheets\` artifact (contact_sheet.jpg, detail_sheet.jpg, sweep_sheet.jpg, batch_sheet.jpg). Plans, libraries and tiles: \`review-full\`." >> "$GITHUB_STEP_SUMMARY"

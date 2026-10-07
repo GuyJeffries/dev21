@@ -79,13 +79,21 @@ def _section(cls):
 
 @dataclass(frozen=True)
 class Style:
+    """The visual grammar's settings (docs/PLAN.md section 11). Each scales rules rather than
+    picking assets; the tables they index live in rules.py and facade.py."""
+
+    # Mirror twins share every decision; "none" lets them differ and leaves odd towers unpaired.
     symmetry: str = _f("bilateral", _choice("bilateral", "none"))
+    # Vertical: continuous piers and pilasters. Horizontal: stone spandrel bands and glass ribbons.
     dominant_axis: str = _f("vertical", _choice("vertical", "horizontal"))
+    # How far the central tower dominates: secondary heights and sizes, ornament spread.
     hierarchy: str = _f("strong", _choice("strong", "moderate", "weak"))
-    ornament_density: float = _f(0.65, _number(lo=0, hi=1))
+    ornament_density: float = _f(0.65, _number(lo=0, hi=1))  # the central tower's
+    # How hard towers step back: the setback inset, and below that, fewer setbacks.
     setback_strength: str = _f("high", _choice("high", "medium", "low"))
+    # Regular: one facade for the building. Varied: each tower group draws its own.
     repetition: str = _f("regular", _choice("regular", "varied"))
-    termination: str = _f("stepped", _choice("stepped", "spire", "flat"))
+    termination: str = _f("stepped", _choice("stepped", "spire", "flat"))  # the central tower
 
 
 @dataclass(frozen=True)
@@ -194,6 +202,22 @@ def spec_from_dict(data: dict) -> Spec:
 
 def spec_to_dict(spec: Spec) -> dict:
     return json.loads(json.dumps(asdict(spec)))  # tuples -> lists, as written in JSON
+
+
+def spec_with(spec: Spec, path: str, value) -> Spec:
+    """`spec` with the field at a dotted path ("style.hierarchy") set to `value`, validated
+    as if loaded from JSON."""
+    data = spec_to_dict(spec)
+    *parents, name = path.split(".")
+    node = data
+    for part in parents:
+        if not isinstance(node.get(part), dict):
+            raise SpecError(f"{path}: {part!r} is not a section")
+        node = node[part]
+    if name not in node:
+        raise SpecError(f"{path}: unknown field {name!r}")
+    node[name] = value
+    return spec_from_dict(data)
 
 
 def load_spec(path: str | Path) -> Spec:

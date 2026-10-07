@@ -1,6 +1,6 @@
 # Arcology Generator: Project Plan
 
-**Status:** Phases 0 to 3 complete (2026-10-07); Phase 4 next.
+**Status:** Phases 0 to 4 complete (2026-10-07); Phase 5 next.
 
 Revision 2 (2026-10-07). Revises the original proposal after review. This plan is a starting point, not the full
 scope: the objective right now is to get it working, with "exciting retro-futurist arcologies" as a later pass.
@@ -277,6 +277,24 @@ termination = stepped
 It controls proportion, symmetry, hierarchy, dominant axis, repetition, setback rhythm, ornament density, material,
 silhouette, negative space and termination. The same modules then produce many buildings in one recognisable language.
 
+As built (Phase 4), each setting scales rules rather than choosing assets:
+
+| Setting | Effect |
+|---|---|
+| `symmetry` | `bilateral`: mirror twins share every decision. `none`: twins draw their own heights, sizes and crowns, and slots fill singly, so an odd count leaves a tower unpaired |
+| `dominant_axis` | `vertical`: continuous piers, pilasters every few bays. `horizontal` (streamline): no pilasters; stone spandrel bands run unbroken over piers that give way to glass, so each floor reads as a ribbon |
+| `hierarchy` | `strong` / `moderate` / `weak`: secondary towers taller, broader and closer, with less height falloff by ring and a lower dominance target (1.3 / 1.2 / 1.1); ornament spread more evenly |
+| `ornament_density` | The central tower's; other standings take a share that the hierarchy sets |
+| `setback_strength` | `high` / `medium` / `low`: the drawn setback inset at full or 60%, and at `low` only every other setback (steps can't shrink below a bay) |
+| `repetition` | `regular`: one facade system. `varied`: each tower group draws its own density, mullions and pilaster rhythm; twins share theirs |
+| `termination` | The central tower's crown: `stepped`, `spire` or `flat` |
+
+**Style envelope.** Checks that keep every setting recognisably Art Deco: the central tower's slenderness stays
+within 2-8 and no secondary tower is more slender than it (no needles, no stubs), it tapers to 25-95% of its base
+width (no slab), the podium is 8-45% of the floors (a base to stand on), a single spire takes at most a quarter of
+the tower's height, and ornament stays below 2.5 pieces per facade cell. The 100-seed batch sheet shows the
+silhouettes and the envelope's ranges on every push.
+
 ## 12. Architectural consequence system
 
 The architecture embodies the dystopia without announcing it. It represents the utopian ideals of its period
@@ -445,6 +463,15 @@ contact sheet of this phase showed none of them, because windows are L0-L1 only.
 
 **Done when:** a 100-seed batch stays recognisably in style, checked for accidental Gothic or fantasy drift.
 
+**As built:** every style setting is wired (section 11), the style envelope checks drift automatically, and CI renders
+a sweep sheet (each style setting along a row, one seed) and a 100-seed batch sheet at L3 with the envelope's
+ranges. The first sweep showed three settings with no visible effect: medium and low setbacks were identical (steps
+round to whole bays), a weak hierarchy changed nothing (narrow sister towers were capped by the new slenderness
+rule), and asymmetric twins came out equal; each now changes the building. The first horizontal facades read as a
+punched-window grid until the piers between windows gave way to glass. The envelope also caught real drift in the
+grammar: sister towers 12 m wide and 300 m tall (slenderness 25), now capped at the central tower's slenderness,
+which in turn needed pavilions held below the shortest sister. The optional local add-on is not built (Gate 2).
+
 ### Phase 5: Representation levels
 
 **Build:** L0 to L3 with budgets; distance sheets showing one building at each level.
@@ -525,6 +552,7 @@ Inside building 3 → looking through window → distinctive building 2 → cut 
 | Floor alignment | Elements sit on floor boundaries | 100% |
 | Cornices | Every mass has one cornice, following its outline, in its top floor | 100% |
 | Ornament hierarchy | No standing carries an ornament system more richly than the standing above it | Pass |
+| Style envelope | Slenderness, taper, podium share, spire share and ornament within the bounds in section 11 | Pass |
 
 ### Visual (judged by you, from the pull request)
 
@@ -577,6 +605,8 @@ For bandwidth, sheets stay around 500 KB (compressed JPEG). Full-resolution rend
   - If sweep sheets are enough: no UI work.
   - Otherwise: build the local Blender add-on panel first.
   - Prototype a Godot editor only if the Blender interface itself is the bottleneck.
+  - **Decision (Phase 4):** sweep sheets are enough for now; no add-on. Revisit if exploring parameters by pull
+    request becomes the bottleneck.
 - **Gate 3: ready for Unreal?** (After Phase 6.)
   - Entry criteria: handover package v1 stable, a district assembled in Blender, and bandwidth available on your side.
 - **Gate 4: Houdini?** (Any time.)

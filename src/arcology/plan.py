@@ -94,6 +94,7 @@ class Plan:
     floor_height: float
     bay_width: float
     elements: tuple[Element, ...]
+    style: dict = field(default_factory=dict)  # the spec's style section, which checks read
     schema: str = PLAN_SCHEMA
     units: str = "m"
 
@@ -107,6 +108,7 @@ class Plan:
             "seed": self.seed,
             "floor_height": self.floor_height,
             "bay_width": self.bay_width,
+            "style": self.style,
             "elements": [e.to_dict() for e in self.elements],
         }
 
@@ -125,6 +127,7 @@ class Plan:
             floor_height=d["floor_height"],
             bay_width=d["bay_width"],
             elements=tuple(Element.from_dict(e) for e in d["elements"]),
+            style=d.get("style", {}),
             units=d["units"],
         )
 

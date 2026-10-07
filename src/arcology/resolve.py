@@ -14,11 +14,12 @@ wraps, the piers, corners and cornices are L0-L2; windows, portals and merlons a
 """
 
 import math
+from dataclasses import asdict
 
 from arcology.compose import Tower, composition, secondary_towers
-from arcology.facade import Portal, dress, entrance_size, facade_system
+from arcology.facade import Portal, dress, entrance_size, facade_system, facade_variant
 from arcology.plan import Element, Plan
-from arcology.rules import ROOT, ResolveError, bays, mass, notch_for, sample
+from arcology.rules import ROOT, SETBACK_STRENGTH, ResolveError, bays, mass, notch_for, sample
 from arcology.seeds import derive_seed, path_seed
 from arcology.spec import Spec
 
@@ -73,7 +74,8 @@ def _central(spec: Spec, top_tier: Element) -> tuple[Tower, float]:
     w = bays(sample(ct.width, cs, "width"), bay)
     d = bays(sample(ct.depth, cs, "depth"), bay)
     floors = sample(ct.floors, cs, "floors", integer=True)
-    inset = sample(ct.setback_inset, cs, "setback_inset")
+    strength = SETBACK_STRENGTH[spec.style.setback_strength]
+    inset = sample(ct.setback_inset, cs, "setback_inset") * strength.inset
     setbacks = [
         sample(s, derive_seed(cs, f"setback.{k}"), "floor", integer=True)
         for k, s in enumerate(ct.setbacks)
@@ -82,6 +84,7 @@ def _central(spec: Spec, top_tier: Element) -> tuple[Tower, float]:
         raise ResolveError(
             f"{cid}: setbacks {setbacks} must rise strictly between floor 1 and {floors - 1}"
         )
+    setbacks = setbacks[:: strength.every]
     if w > top_w - 2 * bay or d > top_d - 2 * bay:
         raise ResolveError(
             f"{cid}: a {w:g} x {d:g} m tower doesn't fit on the {top_w:g} x {top_d:g} m "
@@ -129,6 +132,12 @@ def resolve(spec: Spec) -> Plan:
     )
     for t in towers:
         portals[t.sections[0].id] = (Portal("door", t.slot.side, None, 1),)
+    # Varied repetition: each tower group (twins together) has its own facade; the podium
+    # and central tower keep the building's.
+    facades = {}
+    if spec.style.repetition == "varied":
+        for t in towers:
+            facades |= {s.id: facade_variant(spec, fac, t.seed) for s in t.sections}
     tops = {t.sections[-1].id for t in (central, *towers)}
     masses = [*podium, *central.sections, *(s for t in towers for s in t.sections)]
     elements: list[Element] = []
@@ -136,7 +145,7 @@ def resolve(spec: Spec) -> Plan:
         elements.append(m)
         elements += dress(
             m,
-            fac,
+            facades.get(m.id, fac),
             portals=portals.get(m.id, ()),
             base=entrance[1] if m is podium[0] else 0,
             parapet=m.id not in tops,
@@ -147,4 +156,5 @@ def resolve(spec: Spec) -> Plan:
         floor_height=spec.floor_height,
         bay_width=spec.facade.bay_width,
         elements=tuple(elements),
+        style=asdict(spec.style),
     )
