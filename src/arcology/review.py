@@ -12,6 +12,7 @@ bandwidth, plus the metrics as JSON and Markdown.
 
 import json
 import math
+from collections import Counter
 from dataclasses import replace
 from pathlib import Path
 
@@ -21,7 +22,9 @@ from PIL import Image, ImageDraw, ImageFont
 
 from arcology.assemble import assemble
 from arcology.build import build_library
+from arcology.facade import TREATMENTS
 from arcology.metrics import (
+    EXCEPTION_CAP,
     LUXURY_SHARE,
     ORNAMENT_CAP,
     PODIUM_SHARE,
@@ -31,7 +34,7 @@ from arcology.metrics import (
     failures,
     measure,
 )
-from arcology.plan import Plan, element_bounds, instances, plan_bounds
+from arcology.plan import Plan, element_bounds, plan_bounds
 from arcology.resolve import resolve
 from arcology.rules import CENTRAL
 from arcology.spec import Spec, spec_with
@@ -62,9 +65,11 @@ def shared_camera(plans: list[Plan]) -> dict:
 
 
 def detail_cameras(plan: Plan) -> dict[str, dict]:
-    """Close-up framings: the main entrance; the sister-tower cluster at its transfer floor
-    (else a pavilion bridge, else the tower's base corner); the central tower's first setback
-    (capital, cornice, merlons), if it has one; its crown."""
+    """Close-up framings: the main entrance; the central tower's base section seen whole
+    from the south (the mid-range view, where bands, panels and treatments read); the
+    sister-tower cluster at its transfer floor (else a pavilion bridge, else the tower's
+    base corner); the central tower's first setback (capital, cornice, merlons), if it has
+    one; its crown."""
     bay, fh = plan.bay_width, plan.floor_height
     ground = (plan_bounds(plan)[1][0] - plan_bounds(plan)[0][0]) * 8
     entrance = next(e for e in plan.elements if e.kind == "entrance")
@@ -75,6 +80,12 @@ def detail_cameras(plan: Plan) -> dict[str, dict]:
             "hi": (x1 + 2 * bay, y1, z1 + 2 * fh),
             "view": (-0.35, 1.0, -0.12),
         }
+    }
+    (fx0, fy0, fz0), (fx1, _, fz1) = element_bounds(plan.element(f"{CENTRAL}/section.0"))
+    views["face"] = {
+        "lo": (fx0 - bay, fy0 - bay, fz0),
+        "hi": (fx1 + bay, fy0 + bay, fz1 + fh),
+        "view": (-0.3, 1.0, -0.1),
     }
     bridges = [e for e in plan.elements if e.kind == "bridge"]
     inner = [b for b in bridges if b.tags["from"].startswith("arcology/tower.central")]
@@ -300,16 +311,22 @@ def detail_sheet(
         crown = next(e for e in plan.elements if e.kind == "crown" and e.tags["tower"] == CENTRAL)
         base = f"{CENTRAL}/section.0"
         capital = {
-            c.floor
-            for e in plan.elements
-            if e.kind == "window" and e.tags["mass"] == base and e.tags["zone"] == "capital"
-            for c in instances(plan, e)
+            f
+            for r in plan.regions
+            if r.treatment and r.mass == base and r.tags["course"] == "capital"
+            for f in range(*r.floors)
         }
         merlons = sum(
             e.count for e in plan.elements if e.kind == "merlon" and e.tags["mass"] == base
         )
+        south = Counter(
+            r.treatment
+            for r in plan.regions
+            if r.mass == base and r.facade == "south" and r.treatment in TREATMENTS
+        )
         captions = {
             "entrance": f"{bays[1] - bays[0]} bays x {floors[1] - floors[0]} floors",
+            "face": ", ".join(f"{n} {t}" for t, n in sorted(south.items())) or "no exceptions",
             "cluster": f"{len(bridges)} bridges; sister towers meet at floor {bridges[0].floor}"
             if bridges
             else "",
@@ -341,6 +358,7 @@ STYLE_SWEEPS = (
     ("style.symmetry", ["bilateral", "none"]),
     ("style.repetition", ["regular", "varied"]),
     ("style.termination", ["spire", "stepped", "flat"]),
+    ("style.contrast", [0.0, 0.5, 1.0]),
 )
 
 
@@ -416,6 +434,84 @@ def sweep_sheet(
     return results
 
 
+# What-if: the treatments one at a time, then together (docs/LAYERS.md section 9), on the
+# central tower's base section seen whole from the south at L0, built alone so it's quick.
+WHATIF_SEEDS = (11, 37)
+WHATIF = (
+    ("none", {"style.contrast": 0.0}),
+    *((t, {"facade.treatments": [t], "style.contrast": 1.0}) for t in TREATMENTS),
+    ("all, contrast 0.5", {"style.contrast": 0.5}),
+    ("all, contrast 1", {"style.contrast": 1.0}),
+    # Giant orders come into their own across a horizontal face's full-width bands.
+    ("horizontal, contrast 1", {"style.dominant_axis": "horizontal", "style.contrast": 1.0}),
+)
+
+
+def _section(plan: Plan, mass_id: str) -> Plan:
+    """The plan cut down to one mass and everything dressing it."""
+    keep = [e for e in plan.elements if e.id == mass_id or e.tags.get("mass") == mass_id]
+    return replace(plan, elements=tuple(keep))
+
+
+def whatif_markdown(rows: list[dict]) -> str:
+    lines = [
+        "### What-if sheet: the central tower's base section, L0",
+        "",
+        "| seed | variant | luxury | exceptions | field | opening | recess | giant | rich "
+        "| checks |",
+        "|---:|---|---:|---:|---:|---:|---:|---:|---:|---|",
+    ]
+    for r in rows:
+        area, failed = r["layers"]["area"], failures(r)
+        shares = " | ".join(f"{area.get(t, 0):.1%}" for t in TREATMENTS)
+        lines.append(
+            f"| {r['seed']} | {r['variant']} | {r['layers']['luxury']['building']:.0%} "
+            f"| {r['layers']['exceptions']['building']:.1%} | {shares} "
+            f"| {'FAIL: ' + ', '.join(failed) if failed else 'ok'} |"
+        )
+    return "\n".join(lines) + "\n"
+
+
+def whatif_sheet(
+    spec: Spec,
+    seeds,
+    out_dir: str | Path,
+    *,
+    tile: tuple[int, int] = (300, 300),
+    samples: int = 16,
+    variants=WHATIF,
+) -> list[dict]:
+    """One row per seed, one column per variant (name, {path: value}; default WHATIF): the
+    central tower's base section at L0 from the mid-range camera. Shares and checks are the
+    whole building's."""
+    out_dir = Path(out_dir)
+    out_dir.mkdir(parents=True, exist_ok=True)
+    rows, labels, tiles = [], [], []
+    for seed in seeds:
+        for i, (name, changes) in enumerate(variants):
+            changed = spec
+            for path, value in changes.items():
+                changed = spec_with(changed, path, value)
+            plan = resolve(replace(changed, seed=seed))
+            result = {"seed": seed, "variant": name, **measure(plan)}
+            rows.append(result)
+            cell = out_dir / f"seed-{seed}" / f"variant-{i}"
+            build_library(_section(plan, f"{CENTRAL}/section.0"), cell, "L0")
+            camera = detail_cameras(plan)["face"]
+            render_tile(cell / "manifest.json", cell / "tile.png", camera, tile, samples)
+            failed = failures(result)
+            bottom = (
+                "FAIL " + ", ".join(failed)
+                if failed
+                else (f"exceptions {result['layers']['exceptions']['building']:.0%}")
+            )
+            labels.append((f"{seed}  {name}", bottom, bool(failed)))
+            tiles.append(cell / "tile.png")
+    _montage(labels, tiles, out_dir / "whatif_sheet.jpg", tile, len(variants), compact=True)
+    (out_dir / "whatif.md").write_text(whatif_markdown(rows))
+    return rows
+
+
 # Batch: many seeds as silhouettes, to judge whether the style holds (Phase 4's done-when).
 BATCH_RANGES = (
     ("height (m)", lambda r: r["height_m"], None),
@@ -442,6 +538,12 @@ BATCH_RANGES = (
     ),
     ("luxury, central", lambda r: r["layers"]["luxury"].get("central"), "≥ the others'"),
     ("sky lobbies (share)", lambda r: r["layers"]["courses"].get("lobby", 0), None),
+    (
+        "exceptions (share)",
+        lambda r: r["layers"]["exceptions"]["building"],
+        f"≤ {EXCEPTION_CAP:g}",
+    ),
+    ("exceptions, central", lambda r: r["layers"]["exceptions"].get("central"), None),
 )
 
 

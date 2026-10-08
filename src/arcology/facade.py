@@ -57,7 +57,7 @@ from arcology.rules import (
     sample,
     standing,
 )
-from arcology.seeds import derive_seed, path_seed
+from arcology.seeds import derive_seed, path_seed, rng
 from arcology.spec import Spec
 
 GLASS = 0.05  # glazing thickness
@@ -70,6 +70,7 @@ CAPITAL_SILL = 0.6  # share of a capital floor that is stone panel below the gla
 BASE_SILL, BASE_JAMB = 0.15, 0.22  # base windows: low sill; jambs as a share of the bay
 HEAD, CORBEL = 0.6, 0.3  # stone head over capital and base glass; corbels under it
 CHEVRON_BAND, CHEVRON_RELIEF = 0.22, 0.08
+RICH_SILL = 1.4  # a rich window's spandrel is at least this tall, to carry its chevrons
 CORNICE_REACH, CORNICE_RISE = 0.3, 0.35  # per step of a cornice
 # Merlons: pylons continuing pilasters above the roof, stepping in over the parapet; width as
 # a share of the pier's, standing slightly proud so no face lies in the parapet's.
@@ -113,6 +114,46 @@ COURSE_RANK = {
 }
 STANDING_LUXURY = {"central": 1.3, "sister": 1.0, "podium": 0.9, "pavilion": 0.7}
 FACING_RANK = {"south": 3, "north": 2, "east": 1, "west": 1}  # the front first; notches last
+
+# Treatments (docs/LAYERS.md sections 4 and 5): what a luxury leaf may become, by the kind of
+# place (its course: runs, seams, the capital, the base) and its column. The seed picks one
+# per kind of course and column on each tower, so a tower's luxury lobbies all match;
+# `contrast` sets how many kinds take one, and favours cuts (openings and recesses, which
+# carve a space into the core) over ornament. A pick that doesn't fit a leaf falls back
+# along the list.
+TREATMENTS = ("field", "opening", "recess", "giant", "rich")
+CUTS = ("opening", "recess")
+COLUMNS = ("axis", "flank", "edge", "full")
+ALLOWED = {
+    "run": {
+        "axis": ("opening", "field", "rich"),
+        "flank": ("giant", "rich"),
+        "edge": ("rich",),
+        "full": ("giant",),  # a run of plain stone across a whole face is a blank wall
+    },
+    "seam": {
+        "axis": ("recess", "opening"),
+        "flank": ("recess", "rich"),
+        "edge": ("field",),
+        "full": ("giant", "field"),
+    },
+    "capital": dict.fromkeys(COLUMNS, ("field",)),
+    "base": {
+        "axis": ("opening", "field"),
+        "flank": ("giant", "field"),
+        "edge": ("field",),
+        "full": ("giant", "field"),
+    },
+}
+OPENING_DEPTH, RECESS_DEPTH, MIN_CUT = 12.0, 6.0, 3.0  # metres into the building
+RECESS_FLOORS = 3  # a recess is a loggia or terrace: at most this tall
+FRAMES, FRAME_WIDTH, FRAME_STEP, SILL_STEP = 3, 0.6, 0.35, 0.45  # an opening's stepped frame
+MULLION_PITCH, TRANSOM_PITCH = 3.0, 9.0  # an opening's coarse grid, metres
+HALL_SLABS = 3  # floors between the slabs of the hall behind an opening
+SLAB, RAIL, RAIL_HEIGHT = 0.35, 0.25, 1.1  # a recess's floor slabs and balustrades
+GIANT_WIDTH, GIANT_PROUD = 2.5, 0.6  # a giant pier: width as a share of a pier's; metres proud
+NICHE_WIDTH, NICHE_HEIGHT, NICHE_DEPTH = 0.5, 0.7, 0.5  # a field's slot: shares, metres
+NICHE_SURROUND = 0.15  # each step of the niche's surround stands this far proud
 
 
 @dataclass(frozen=True)
@@ -159,16 +200,19 @@ class FacadeSystem:
     run: int = 12  # band rhythm: floors in a shaft run between sky lobbies
     lobby: int = 1  # and in a sky lobby
     luxury: float = 0.25  # program.luxury: the building's luxury share of its facade area
+    contrast: float = 0.5  # style.contrast
+    treatments: tuple[str, ...] = TREATMENTS  # facade.treatments: the ones allowed
 
     @property
     def depth(self) -> float:
         """Envelope to core: piers stand proud by pier_depth, windows sit behind that."""
         return rnd(self.pier_depth + self.recess + GLASS)
 
-    def window(self, zone: str, chevrons: int = 0) -> tuple[str, dict, tuple]:
+    def window(self, zone: str, chevrons: int = 0, rich: bool = False) -> tuple[str, dict, tuple]:
         """Recipe, params and extent of a window in `zone`: a channel filling the bay
         between two piers, glazed above a spandrel (shaft) or a stone panel (capital),
-        or a narrower opening between stone jambs (base)."""
+        or a narrower opening between stone jambs (base). A rich shaft window carries
+        bronze chevrons on its spandrel."""
         clear, fh = self.bay - self.pier_width, self.floor_height
         params = {
             "width": rnd(clear),
@@ -183,10 +227,23 @@ class FacadeSystem:
         if zone == "shaft":
             recipe = "window.deco_tall"
             params["sill"] = rnd(fh * (0.55 - 0.45 * self.density))
+            spandrel = panel
             if self.axis == "horizontal":  # a stone band, standing forward, for a spandrel
                 recipe = "window.deco_band"
-                params["band"] = BAND_FRONT
+                params["band"] = spandrel = BAND_FRONT
                 nearest = BAND_FRONT
+            pitch, count = 1.6 * CHEVRON_BAND, max(1, chevrons)
+            if rich and self.axis == "vertical":  # room for the chevrons on a bronze panel
+                params["sill"] = rnd(max(params["sill"], RICH_SILL))
+            rise = 0.65 * params["sill"] - CHEVRON_BAND - (count - 1) * pitch
+            if rich and rise > 0.2:
+                params |= {
+                    "chevrons": count,
+                    "chevron_band": CHEVRON_BAND,
+                    "rise": rnd(rise),
+                    "relief": CHEVRON_RELIEF,
+                }
+                nearest = min(nearest, spandrel - CHEVRON_RELIEF)
         elif zone == "capital":
             recipe = "window.deco_capital"
             sill = fh * CAPITAL_SILL
@@ -234,6 +291,8 @@ def facade_system(spec: Spec) -> FacadeSystem:
         run=sample(f.band_run, fs, "band_run", integer=True),
         lobby=sample(f.lobby_floors, fs, "lobby_floors", integer=True),
         luxury=rnd(sample(spec.program.luxury, path_seed(spec.seed, f"{ROOT}/program"), "luxury")),
+        contrast=spec.style.contrast,
+        treatments=tuple(spec.facade.treatments),
     )
     if system.pier_width >= system.bay / 2:
         raise ResolveError(
@@ -416,12 +475,26 @@ class _Face:
         """Facade coordinate (metres from the centre) of bay line `line`."""
         return -self.length / 2 + self.fac.bay * line
 
-    def at(self, u: float, floor: int) -> tuple[float, float, float]:
-        """World position of facade coordinate u at the base of `floor`."""
-        (ox, oy), (ux, uy) = self.edge.mid, self.edge.direction
+    def at(self, u: float, floor: int, inset: float = 0.0) -> tuple[float, float, float]:
+        """World position of facade coordinate u at the base of `floor`, `inset` metres
+        behind the envelope."""
+        (ox, oy), (ux, uy), (nx, ny) = self.edge.mid, self.edge.direction, self.edge.normal
         mx, my, mz = self.mass.translation
         z = mz + (floor - self.mass.floor) * self.fac.floor_height
-        return (rnd(mx + ox + ux * u), rnd(my + oy + uy * u), rnd(z))
+        return (rnd(mx + ox + ux * u - nx * inset), rnd(my + oy + uy * u - ny * inset), rnd(z))
+
+    def cut(self, leaf: Region, depth: float) -> list[float]:
+        """The box a cut treatment carves from the core behind `leaf`, `depth` metres deep
+        from the envelope and between the faces of the piers at its edges, in the mass's
+        frame: [x0, y0, z0, x1, y1, z1]."""
+        (ox, oy), (ux, uy), (nx, ny) = self.edge.mid, self.edge.direction, self.edge.normal
+        half = self.fac.pier_width / 2
+        us = (self.u(leaf.bays[0]) + half, self.u(leaf.bays[1]) - half)
+        pts = [(ox + ux * u - nx * y, oy + uy * u - ny * y) for u in us for y in (0.0, depth)]
+        fh, f0 = self.fac.floor_height, self.mass.floor
+        lo = (min(x for x, _ in pts), min(y for _, y in pts), (leaf.floors[0] - f0) * fh)
+        hi = (max(x for x, _ in pts), max(y for _, y in pts), (leaf.floors[1] - f0) * fh)
+        return [rnd(v) for v in (*lo, *hi)]
 
     def axis(self, name: str, start: int, count: int, stride: int = 1) -> dict:
         ux, uy = self.edge.direction
@@ -435,13 +508,15 @@ class _Face:
             axis["stride"] = stride
         return axis
 
-    def element(self, name, kind, recipe, params, extent, u, floor, lod, **extra) -> Element:
+    def element(
+        self, name, kind, recipe, params, extent, u, floor, lod, inset=0.0, **extra
+    ) -> Element:
         return Element(
             id=f"{self.id}/{name}",
             kind=kind,
             recipe=recipe,
             params=params,
-            translation=self.at(u, floor),
+            translation=self.at(u, floor, inset),
             rotation_z_deg=self.edge.rotation,
             extent=extent,
             floor=floor,
@@ -458,13 +533,22 @@ class _Face:
         )
 
     def windows(
-        self, name: str, bays: range, floors: range, zone: str, rho: float, regions: list[str]
+        self,
+        name: str,
+        bays: range,
+        floors: range,
+        zone: str,
+        rho: float,
+        regions: list[str],
+        *,
+        rich: bool = False,
+        inset: float = 0.0,
     ):
         """A block of windows over `bays` x `floors` (a run of cells leaves side by side,
-        named in `regions`), and its L2 channels."""
+        named in `regions`), and its L2 channels; `inset` metres back for a recess."""
         if not bays or not floors:
             return []
-        recipe, params, extent = self.fac.window(zone, chevrons(rho))
+        recipe, params, extent = self.fac.window(zone, chevrons(rho), rich)
         axes = [
             self.axis("bay", bays.start, len(bays)),
             self.axis("floor", floors.start, len(floors)),
@@ -479,6 +563,7 @@ class _Face:
             u,
             floors.start,
             DETAIL,
+            inset,
             array={"prefix": self.id, "axes": axes},
             tags={"zone": zone, "regions": regions},
         )
@@ -504,18 +589,30 @@ class _Face:
             u,
             floors.start,
             DISTANT,
+            inset,
             array={"prefix": f"{regions[0]}/channel", "axes": axes[:1]},
             tags={"zone": zone, "regions": regions},
         )
         return [window, channel]
 
     def piers(
-        self, name: str, lines: range, floors: range, order: str, rho: float, shaft: list[range]
+        self,
+        name: str,
+        lines: range,
+        floors: range,
+        order: str,
+        rho: float,
+        shaft: list[range],
+        *,
+        prefix: str | None = None,
+        inset: float = 0.0,
     ):
         """Piers on bay `lines` over `floors`: full-depth pilasters (fluted as ornament
         allows), or minor piers standing back between them. On a horizontal axis piers stand
         back and, up each stretch of `shaft` floors, give way to glass behind the spandrel
-        bands they carry across, so each floor's windows read as one ribbon."""
+        bands they carry across, so each floor's windows read as one ribbon. A recess's
+        back wall has plain piers ("back"), `inset` metres behind the envelope. Copies are
+        named from `prefix` (default: the face) and their line."""
         fac = self.fac
         pw, dd = fac.pier_width, fac.depth
         from_floor = floors.start
@@ -555,7 +652,8 @@ class _Face:
                 self.u(lines.start),
                 from_floor,
                 STRUCTURE,
-                array={"prefix": self.id, "axes": axes},
+                inset,
+                array={"prefix": prefix or self.id, "axes": axes},
                 tags={"order": order},
             )
         ]
@@ -634,13 +732,200 @@ class _Face:
             tags=tags,
         )
 
+    # Treatments: each fills its leaf between the piers at its edges.
 
-def _core_and_corners(mass: Element, fac: FacadeSystem) -> list[Element]:
+    def _leaf(self, leaf: Region) -> tuple[float, float, float, dict]:
+        """A leaf's clear width (between the faces of its edge piers), height, centre u, and
+        the tags every element filling it carries."""
+        (a, b), (f0, f1) = leaf.bays, leaf.floors
+        tags = {"bays": [a, b], "floors": [f0, f1], "regions": [leaf.id]}
+        width = rnd((b - a) * self.fac.bay - self.fac.pier_width)
+        return width, rnd((f1 - f0) * self.fac.floor_height), self.u((a + b) / 2), tags
+
+    def field(self, name: str, leaf: Region) -> list[Element]:
+        """Plain stone, coursed every floor by a shallow joint; on the axis, a niche in a
+        stepped surround holding an empty asset slot (a figure, or a relief in a capital)."""
+        fac, dd = self.fac, self.fac.depth
+        w, h, u, tags = self._leaf(leaf)
+        params = {
+            "width": w,
+            "height": h,
+            "front": BAND_FRONT,
+            "depth": dd,
+            "floor_height": fac.floor_height,
+        }
+        lo = BAND_FRONT
+        out = []
+        slot = leaf.tags.get("slot")
+        if slot:
+            nw, nh = rnd(w * NICHE_WIDTH), rnd(h * NICHE_HEIGHT)
+            z0 = rnd((h - nh) / 2)
+            params["niche"] = [nw, nh, z0, NICHE_DEPTH]
+            lo = rnd(BAND_FRONT - 2 * NICHE_SURROUND)
+            out.append(
+                self.element(
+                    f"{name}/slot",
+                    "asset_slot",
+                    f"slot.{slot}",
+                    {"width": nw, "height": nh, "depth": NICHE_DEPTH},
+                    (
+                        (rnd(-nw / 2), BAND_FRONT, z0),
+                        (rnd(nw / 2), rnd(BAND_FRONT + NICHE_DEPTH), rnd(z0 + nh)),
+                    ),
+                    u,
+                    leaf.floors[0],
+                    (),  # empty until assets exist
+                    tags={**tags, "slot": slot},
+                )
+            )
+        extent = ((rnd(-w / 2), lo, 0.0), (rnd(w / 2), dd, h))
+        field = self.element(
+            name, "field", "field.stone", params, extent, u, leaf.floors[0], STRUCTURE, tags=tags
+        )
+        return [field, *out]
+
+    def opening(self, name: str, leaf: Region) -> list[Element]:
+        """One glazed opening in a stepped frame receding into the wall, with its own coarse
+        grid of mullions and transoms (ignoring the floors) over an ornamented sill, and the
+        hall it lights: a space carved into the core, with a slab every few floors and a lit
+        back wall."""
+        fac = self.fac
+        w, h, u, tags = self._leaf(leaf)
+        frames = max(1, min(FRAMES, int((w - 1.5) / (2 * FRAME_WIDTH))))
+        fw = rnd(min(FRAME_WIDTH, (w - 1.5) / (2 * frames))) if frames else 0.0
+        glass = rnd(frames * FRAME_STEP + 0.6)
+        inner_w, inner_h = w - 2 * frames * fw, h - frames * (fw + SILL_STEP)
+        params = {
+            "width": w,
+            "height": h,
+            "frames": frames,
+            "frame_width": fw,
+            "frame_step": FRAME_STEP,
+            "sill_step": SILL_STEP,
+            "glass": glass,
+            "mullions": max(1, round(inner_w / MULLION_PITCH) - 1),
+            "transoms": max(1, round(inner_h / TRANSOM_PITCH) - 1),
+            "band": CHEVRON_RELIEF,
+        }
+        extent = ((rnd(-w / 2), -CHEVRON_RELIEF, 0.0), (rnd(w / 2), glass, h))
+        depth = leaf.tags["depth"]
+        hall = {
+            "width": w,
+            "height": h,
+            "front": glass,
+            "depth": depth,
+            "floor_height": fac.floor_height,
+            "every": HALL_SLABS,
+        }
+        f0 = leaf.floors[0]
+        return [
+            self.element(
+                name, "opening", "opening.deco", params, extent, u, f0, STRUCTURE, tags=tags
+            ),
+            self.element(
+                name.replace("opening", "hall"),
+                "space",
+                "space.hall",
+                hall,
+                ((rnd(-w / 2), glass, 0.0), (rnd(w / 2), depth, h)),
+                u,
+                f0,
+                STRUCTURE,
+                tags={**tags, "program": "hall"},
+            ),
+        ]
+
+    def recess(self, name: str, leaf: Region) -> list[Element]:
+        """A recess's slabs, one per floor with a balustrade at its front edge, and the
+        terrace they make (a space with no geometry of its own); its back wall is cells,
+        placed with the windows."""
+        fac = self.fac
+        w, h, u, tags = self._leaf(leaf)
+        back = leaf.tags["depth"] - fac.depth  # the back wall's envelope
+        floors = leaf.floors[1] - leaf.floors[0]
+        params = {
+            "width": w,
+            "depth": rnd(back),
+            "floors": floors,
+            "floor_height": fac.floor_height,
+            "slab": SLAB,
+            "rail": RAIL,
+            "rail_height": RAIL_HEIGHT,
+        }
+        top = rnd((floors - 1) * fac.floor_height + SLAB + RAIL_HEIGHT)
+        f0 = leaf.floors[0]
+        return [
+            self.element(
+                name,
+                "slab",
+                "recess.slab",
+                params,
+                ((rnd(-w / 2), 0.0, 0.0), (rnd(w / 2), rnd(back), top)),
+                u,
+                f0,
+                STRUCTURE,
+                tags=tags,
+            ),
+            self.element(
+                name.replace("slab", "terrace"),
+                "space",
+                "space.terrace",
+                {"width": w, "depth": rnd(back), "height": h},
+                ((rnd(-w / 2), 0.0, 0.0), (rnd(w / 2), rnd(back), h)),
+                u,
+                f0,
+                (),  # the open air of the terrace: nothing to draw
+                tags={**tags, "program": "terrace"},
+            ),
+        ]
+
+    def giant(self, name: str, leaf: Region) -> list[Element]:
+        """A giant order: wide piers every two or three bays, standing proud of the wall in
+        two steps and rising through the whole band, with deep glazing between them on a bay
+        grid of bronze mullions, transoms and spandrels."""
+        fac = self.fac
+        w, h, u, tags = self._leaf(leaf)
+        n = leaf.bays[1] - leaf.bays[0]
+        lines = sorted(pilaster_lines(n, 2 if n < 5 else 3))
+        params = {
+            "width": w,
+            "height": h,
+            "depth": fac.depth,
+            "floor_height": fac.floor_height,
+            "piers": [rnd((line - n / 2) * fac.bay) for line in lines],
+            "mullions": [
+                rnd((line - n / 2) * fac.bay) for line in range(1, n) if line not in lines
+            ],
+            "pier_width": rnd(min(GIANT_WIDTH * fac.pier_width, fac.bay / 2)),
+            "proud": GIANT_PROUD,
+            "glass": GLASS,
+        }
+        extent = ((rnd(-w / 2), -GIANT_PROUD, 0.0), (rnd(w / 2), fac.depth, h))
+        return [
+            self.element(
+                name,
+                "giant",
+                "order.giant",
+                params,
+                extent,
+                u,
+                leaf.floors[0],
+                STRUCTURE,
+                tags=tags,
+            )
+        ]
+
+
+def _core_and_corners(mass: Element, fac: FacadeSystem, cuts=()) -> list[Element]:
+    """The core, less any `cuts` (boxes in the mass's frame, behind openings and
+    recesses), and the corner piers."""
     W, D, H = mass.params["width"], mass.params["depth"], mass.params["height"]
     notch, dd = mass.params.get("notch", 0.0), fac.depth
     core = {"width": rnd(W - 2 * dd), "depth": rnd(D - 2 * dd), "height": H}
     if notch:
         core["notch"] = notch  # an inward offset of a notched outline keeps the notch size
+    if cuts:
+        core["cuts"] = sorted(cuts)
     out = [
         Element(
             id=f"{mass.id}/core",
@@ -730,6 +1015,23 @@ def _column(bays: range, n: int) -> str:
     return "edge" if bays.start == 0 or bays.stop == n else "flank"
 
 
+AXIS_MIN = 2  # bays: the axis column is at least this wide
+
+
+def axis_span(n: int, major: set[int], gap: range | None) -> range | None:
+    """The axis column of an n-bay vertical face: its central pilaster group, widened to the
+    next pilaster lines out while it is narrower than AXIS_MIN bays or doesn't hold the
+    portal (`gap`), so an opening on the axis is never a one-bay slot and a door never
+    splits the axis full height. None without pilasters."""
+    lines = sorted(line for line in major if 2 * line < n)
+    if not lines:
+        return None
+    i = len(lines) - 1
+    while i > 0 and (n - 2 * lines[i] < AXIS_MIN or (gap is not None and lines[i] > gap.start)):
+        i -= 1
+    return range(lines[i], n - lines[i])
+
+
 def layer_tree(
     face: _Face,
     plan: list[tuple[str, range]],
@@ -741,20 +1043,19 @@ def layer_tree(
     their first bay and bands by their first floor counted from the mass's foot, so a change
     below (a taller podium) doesn't rename a tower's regions.
 
-    The face splits into panels at its pilaster lines and its portal's edges, and into bands
-    at its courses (`plan`, from `courses`) and the portal's top: columns first on a
-    vertical face, so a column can run the full height, and bands first on a horizontal one,
-    so a band can run the full width. Panels carry their column (axis, flank, edge or full)
-    and bands their course. Each leaf carries both, and is "cells" (its role from its
-    course: base, shaft, lobby or capital) or "portal" (the entrance or a door, `portal`
-    being (portal, bays, floors)). The face carries `face_tags` too."""
+    A vertical face splits into columns first, so a column can run the full height: at its
+    pilaster lines outside the axis (`axis_span`), then each column into bands at its
+    courses (`plan`, from `courses`); the axis column's band holding the portal splits again
+    at the portal's edges. A horizontal face splits into bands first, so a band can run the
+    full width; the bands the portal sits in split into panels at its edges and the
+    pilaster lines (none, on a horizontal axis). Panels carry their column (axis, flank,
+    edge or full) and bands their course. Each leaf carries both, and is "cells" (its role
+    from its course: base, shaft, lobby or capital) or "portal" (the entrance or a door,
+    `portal` being (portal, bays, floors)). The face carries `face_tags` too."""
     mass, fac = face.mass, face.fac
     n, f0 = face.bays, mass.floor
     top = f0 + round(mass.params["height"] / fac.floor_height)
     gap, low = (portal[1], portal[2]) if portal else (range(0), range(f0, f0))
-    columns = {*(line for line in major if not gap.start < line < gap.stop)}
-    if portal:
-        columns |= {gap.start, gap.stop}
     course_cuts = {r.start for _, r in plan}
     floor_cuts = course_cuts | ({low.stop} if portal else set())
 
@@ -802,6 +1103,9 @@ def layer_tree(
         )
     ]
     if fac.axis == "horizontal":
+        columns = {*(line for line in major if not gap.start < line < gap.stop)}
+        if portal:
+            columns |= {gap.start, gap.stop}
         for floors in _cuts(floor_cuts, f0, top):
             split = portal and floors.stop <= low.stop
             panels = _cuts(columns, 0, n) if split else [range(n)]
@@ -813,12 +1117,23 @@ def layer_tree(
             for bays in panels:
                 tree.append(leaf(f"{bid}/panel.{bays.start:03d}", "panel", bid, bays, floors))
     else:
+        axis = axis_span(n, major, gap if portal else None)
+        if axis is None:  # no pilasters: the portal's edges cut the face full height
+            columns = {gap.start, gap.stop} if portal else set()
+        else:
+            columns = {line for line in major if line <= axis.start or line >= axis.stop}
         for bays in _cuts(columns, 0, n):
             pid = f"{face.id}/panel.{bays.start:03d}"
             tree.append(node(pid, "panel", face.id, bays, range(f0, top), column=_column(bays, n)))
-            inside = bays.start >= gap.start and bays.stop <= gap.stop
-            for floors in _cuts(floor_cuts if inside else course_cuts, f0, top):
-                tree.append(leaf(f"{pid}/band.{floors.start - f0:03d}", "band", pid, bays, floors))
+            holds = portal and bays.start <= gap.start and gap.stop <= bays.stop
+            for floors in _cuts(floor_cuts if holds else course_cuts, f0, top):
+                bid = f"{pid}/band.{floors.start - f0:03d}"
+                if holds and floors.stop <= low.stop and bays != gap:
+                    tree.append(node(bid, "band", pid, bays, floors, course=course(floors)))
+                    for sub in _cuts({gap.start, gap.stop}, bays.start, bays.stop):
+                        tree.append(leaf(f"{bid}/panel.{sub.start:03d}", "panel", bid, sub, floors))
+                else:
+                    tree.append(leaf(bid, "band", pid, bays, floors))
     return tree
 
 
@@ -871,6 +1186,99 @@ def _runs(floors: range, blocked: list[range]) -> list[range]:
     return runs
 
 
+def _place(course: str) -> str:
+    """The kind of place a course is, for ALLOWED: run, seam, capital or base."""
+    return course if course in ("run", "capital", "base") else "seam"
+
+
+def _fits(treatment: str, leaf: Region, mass: Element, fac: FacadeSystem, n: int) -> dict | None:
+    """The tags `treatment` adds to `leaf` if it fits there, else None. Cuts need a main face
+    (not a notch's), a column clear of the corners, the mass's top floor left whole (it holds
+    the cornice), and depth: at most a third of the core, and no deeper than the leaf stands
+    from either end of its face, so cuts from two faces never meet. An opening is at least
+    two floors tall, a recess at most RECESS_FLOORS; a giant order needs three bays and two
+    floors; rich windows are shaft windows."""
+    (a, b), (f0, f1) = leaf.bays, leaf.floors
+    column, top = leaf.tags["column"], mass.floor + round(mass.params["height"] / fac.floor_height)
+    if treatment == "field":
+        slot = None
+        if column == "axis":
+            slot = "relief" if leaf.tags["course"] == "capital" or f1 - f0 < 3 else "figure"
+        return {"slot": slot} if slot else {}
+    if treatment == "giant":
+        return {} if b - a >= 3 and f1 - f0 >= 2 else None
+    if treatment == "rich":
+        return {} if leaf.tags["role"] == "shaft" else None
+    if leaf.facade not in FACING_RANK or column not in ("axis", "flank") or f1 >= top:
+        return None
+    if treatment == "opening" and f1 - f0 < 2 or treatment == "recess" and f1 - f0 > RECESS_FLOORS:
+        return None
+    across = mass.params["depth" if leaf.facade in ("south", "north") else "width"] - 2 * fac.depth
+    nominal = OPENING_DEPTH if treatment == "opening" else RECESS_DEPTH + fac.depth
+    depth = rnd(min(nominal, min(a, n - b) * fac.bay, across / 3))
+    room = depth - (fac.depth if treatment == "recess" else FRAMES * FRAME_STEP + 0.6)
+    return {"depth": depth} if room >= MIN_CUT else None
+
+
+def treatments(regions: list[Region], mass: Element, fac: FacadeSystem, seed: int) -> list[Region]:
+    """Exceptions for one mass's luxury leaves (see ALLOWED). Each kind of place, a course
+    and a column, takes one with probability `contrast` scaled by the mass's standing (as
+    ornament is), drawn from `seed` (the tower's, shared by mirror twins), so every luxury
+    leaf of that kind on the tower matches; on the central tower the axis (on a horizontal
+    axis, the full-width bands) always takes one unless contrast is 0, so every building
+    expresses its spine. A pick that doesn't fit
+    a leaf falls back along its list, else the leaf stays cells. Functional leaves and
+    portals are never touched."""
+    share = fac.contrast * (1 - (1 - STANDING_ORNAMENT[standing(mass)]) * fac.spread)
+    spine = fac.contrast > 0 and standing(mass) == "central"
+    spine_column = "full" if fac.axis == "horizontal" else "axis"
+    width = {r.facade: r.bays[1] for r in regions if r.layer == "face"}
+    picked: dict[tuple[str, str], str | None] = {}
+
+    def pick(course: str, column: str) -> str | None:
+        if (course, column) not in picked:
+            r = rng(seed, f"treatment.{course}.{column}")
+            take = r.random() < share or (spine and column == spine_column)
+            options = [t for t in ALLOWED[_place(course)][column] if t in fac.treatments]
+            weights = [
+                0.5 + fac.contrast if t in CUTS else 1.5 - fac.contrast if t == "rich" else 1.0
+                for t in options
+            ]
+            choice = r.choices(options, weights)[0] if options else None
+            picked[course, column] = choice if take else None
+        return picked[course, column]
+
+    out = []
+    for r in regions:
+        if r.treatment == "cells" and r.tags["grade"] == "luxury":
+            course, column = r.tags["course"], r.tags["column"]
+            first = pick(course, column)
+            if first is not None:
+                options = [first] + [
+                    t for t in ALLOWED[_place(course)][column] if t != first and t in fac.treatments
+                ]
+                for t in options:
+                    extra = _fits(t, r, mass, fac, width[r.facade])
+                    if extra is not None:
+                        r = replace(r, treatment=t, tags={**r.tags, **extra})
+                        break
+        out.append(r)
+    return out
+
+
+def _beside(leaves: list[Region], line: int) -> tuple[range, ...]:
+    """The stretches of floors where shaft windows stand beside bay `line`."""
+    floors = {
+        f
+        for r in leaves
+        if r.treatment in ("cells", "rich")
+        and r.tags["role"] == "shaft"
+        and r.bays[0] <= line <= r.bays[1]
+        for f in range(*r.floors)
+    }
+    return tuple(_stretches(sorted(floors)))
+
+
 def dress(
     mass: Element,
     fac: FacadeSystem,
@@ -881,14 +1289,17 @@ def dress(
     foot: bool = False,
     seams=(),
     anchor: int | None = None,
+    seed: int | None = None,
 ) -> tuple[list[Element], list[Region]]:
-    """Core, corners, piers, windows, portals and cornice for one mass; merlons too if it
-    has a parapet (it is a terrace, not a tower top) and ornament allows. Returns the
-    elements and every face's layer tree, each leaf graded luxury or functional.
+    """Core, corners, piers, windows, portals, treatments and cornice for one mass; merlons
+    too if it has a parapet (it is a terrace, not a tower top) and ornament allows. Returns
+    the elements and every face's layer tree, each leaf graded luxury or functional and the
+    luxury ones treated as `treatments` decides.
 
     `base` is the number of floors in the base zone (the ground tier's, matching the
     entrance); `foot`, `seams` and `anchor` (the floor the building's band rhythm counts
-    from, None for no sky lobbies) set the courses (see `courses`).
+    from, None for no sky lobbies) set the courses (see `courses`); `seed` draws the
+    treatments (default the mass's own; resolve passes the tower's, shared by twins).
     """
     rho = ornament(mass, fac)
     fh, f0, k = fac.floor_height, mass.floor, fac.pilaster_every
@@ -903,10 +1314,11 @@ def dress(
         seams=seams,
         rhythm=rhythm,
     )
-    shaft = _stretches(f for kind, r in plan if COURSE_ROLE[kind] == "shaft" for f in r)
     target = luxury(mass, fac)
     face_tags = {"luxury": target} | ({"rhythm": list(rhythm)} if rhythm else {})
-    out, regions = _core_and_corners(mass, fac), []
+
+    # Every face's tree first: grades and treatments are decided across the whole mass.
+    faces, regions = [], []
     for edge in outline(mass.params["width"], mass.params["depth"], mass.params.get("notch", 0.0)):
         face = _Face(mass, edge, fac)
         n = face.bays
@@ -917,39 +1329,58 @@ def dress(
             a = (n - pb) // 2
             placed = (portal, range(a, a + pb), range(f0, f0 + portal.floors))
         major = pilaster_lines(n, k)
-        tree = layer_tree(face, plan, placed, major, **face_tags)
-        regions += tree
-        leaves = [r for r in tree if r.treatment]
+        faces.append((face, portal, major))
+        regions += layer_tree(face, plan, placed, major, **face_tags)
+    regions = programme(regions, target)
+    regions = treatments(regions, mass, fac, mass.seed if seed is None else seed)
+    leaves_of = defaultdict(list)
+    for r in regions:
+        if r.treatment:
+            leaves_of[r.facade].append(r)
+    by_face = {face.edge.name: face for face, _, _ in faces}
+    cuts = [by_face[r.facade].cut(r, r.tags["depth"]) for r in regions if r.treatment in CUTS]
+    out = _core_and_corners(mass, fac, cuts)
 
-        # Piers on every interior bay line, over the floors no other kind of leaf spans.
-        groups = defaultdict(list)  # (order, floors) -> bay lines
+    for face, portal, major in faces:
+        n, leaves = face.bays, leaves_of[face.edge.name]
+
+        # Piers on every interior bay line, over the floors no leaf other than cells spans;
+        # copies above the lowest run on a line are named from the floor they start on. On a
+        # horizontal axis a pier carries spandrel bands only beside shaft windows.
+        groups = defaultdict(list)  # (order, start, stop, prefix, bands) -> bay lines
         for line in range(1, n):
             blocked = [
                 range(*r.floors)
                 for r in leaves
-                if r.treatment != "cells" and r.bays[0] < line < r.bays[1]
+                if r.treatment not in ("cells", "rich") and r.bays[0] < line < r.bays[1]
             ]
             order = "pilaster" if line in major else "pier"
-            for run in _runs(range(f0, top), blocked):
-                groups[order, run.start, run.stop].append(line)
+            bands = _beside(leaves, line) if fac.axis == "horizontal" else ()
+            for i, run in enumerate(_runs(range(f0, top), blocked)):
+                prefix = face.id if i == 0 else f"{face.id}/floor.{run.start:03d}"
+                groups[order, run.start, run.stop, prefix, bands].append(line)
         named = defaultdict(int)
-        for (order, start, stop), lines in sorted(groups.items()):
+        for (order, start, stop, prefix, bands), lines in sorted(
+            groups.items(), key=lambda g: (*g[0][:4], [(r.start, r.stop) for r in g[0][4]])
+        ):
             for run in progressions(lines, k):
                 name = f"{order}s.{named[order]}"
-                out += face.piers(name, run, range(start, stop), order, rho, shaft)
+                out += face.piers(
+                    name, run, range(start, stop), order, rho, list(bands), prefix=prefix
+                )
                 named[order] += 1
 
         # Cells leaves side by side on the same floors share one window array (and one row of
-        # channels), so the plan stays compact however finely the face is split.
+        # channels), so the plan stays compact however finely the face is split. Rich leaves
+        # join only rich ones; a recess's back wall is its own block, set back.
         runs: list[list[Region]] = []
         for r in sorted(leaves, key=lambda r: (r.floors, r.bays)):
             last = runs[-1][-1] if runs else None
             if (
-                r.treatment == "cells"
+                r.treatment in ("cells", "rich")
                 and last is not None
-                and last.treatment == "cells"
-                and (last.floors, last.tags["role"], last.bays[1])
-                == (r.floors, r.tags["role"], r.bays[0])
+                and (last.floors, last.tags["role"], last.treatment, last.bays[1])
+                == (r.floors, r.tags["role"], r.treatment, r.bays[0])
             ):
                 runs[-1].append(r)
             else:
@@ -958,13 +1389,38 @@ def dress(
             first = run[0]
             name = first.id.removeprefix(face.id + "/")
             bays, rows = range(first.bays[0], run[-1].bays[1]), range(*first.floors)
-            if first.treatment == "cells":
-                ids = [r.id for r in run]
-                out += face.windows(f"{name}/windows", bays, rows, first.tags["role"], rho, ids)
+            role, treatment = first.tags.get("role"), first.treatment
+            ids = [r.id for r in run]
+            if treatment in ("cells", "rich"):
+                out += face.windows(
+                    f"{name}/windows", bays, rows, role, rho, ids, rich=treatment == "rich"
+                )
+            elif treatment == "recess":
+                back = first.tags["depth"] - fac.depth
+                out += face.windows(f"{name}/windows", bays, rows, role, rho, ids, inset=back)
+                inner = range(bays.start + 1, bays.stop)
+                if inner:
+                    out += face.piers(
+                        f"{name}/piers",
+                        inner,
+                        rows,
+                        "back",
+                        rho,
+                        [],
+                        prefix=f"{first.id}/back",
+                        inset=back,
+                    )
+                out += face.recess(f"{name}/slab", first)
+            elif treatment == "field":
+                out += face.field(f"{name}/field", first)
+            elif treatment == "opening":
+                out += face.opening(f"{name}/opening", first)
+            elif treatment == "giant":
+                out += face.giant(f"{name}/giant", first)
             else:  # portal
                 out.append(face.portal(f"{name}/{portal.kind}", portal, bays, top, first.id))
         if parapet and rho >= MERLONS_AT:
             for i, run in enumerate(progressions(major, k)):
                 out += face.merlons(f"merlons.{i}", run, top)
     out.append(_cornice(mass, fac, rho))
-    return out, programme(regions, target)
+    return out, regions

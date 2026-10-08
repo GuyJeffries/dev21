@@ -43,7 +43,7 @@ def test_manifest_has_one_row_per_plan_element_at_the_lod(plan, built):
 
 def test_every_recipe_mesh_matches_its_element_extent(plan, horizontal):
     bpy.ops.wm.read_factory_settings(use_empty=True)
-    elements = [*plan.elements, *horizontal.elements]
+    elements = [e for e in (*plan.elements, *horizontal.elements) if e.lod]  # slots: nothing
     assert {e.recipe for e in elements} == set(RECIPES)  # the plans exercise every recipe
     for e in {element_key(e, "L0"): e for e in elements}.values():
         me = build_mesh(e.recipe, e.params, "probe")
@@ -77,7 +77,8 @@ def _faces(part):
 
 def test_no_two_parts_share_a_face_pointing_the_same_way(plan, horizontal):
     # Coplanar, overlapping faces with the same normal flicker in a rasteriser.
-    for e in {element_key(e, "L0"): e for e in (*plan.elements, *horizontal.elements)}.values():
+    elements = [e for e in (*plan.elements, *horizontal.elements) if e.lod]
+    for e in {element_key(e, "L0"): e for e in elements}.values():
         faces = [(i, f) for i, part in enumerate(RECIPES[e.recipe](e.params)) for f in _faces(part)]
         for j, (i, (axis, sign, c, rect)) in enumerate(faces):
             for i2, (axis2, sign2, c2, rect2) in faces[j + 1 :]:

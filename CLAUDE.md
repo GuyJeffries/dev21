@@ -4,8 +4,8 @@ Procedural Art Deco arcology generator. **Read `docs/PLAN.md` before starting wo
 conventions and phases. Phases 0 (foundations), 1 (massing and first facade), 2 (arcology composition), 3
 (facade grammar: notched shapes, pilasters, zones, cornices, doors, ornament) and 4 (style and variation: every
 style setting wired, style envelope, sweep and batch sheets) are done. Phase 4b, scale layers and contrast
-(`docs/LAYERS.md`, read it too), is under way: steps 1 (layer tree) and 2 (courses, luxury/functional grades) are
-built, step 3 (treatments) is next. Then Phase 5 (representation levels).
+(`docs/LAYERS.md`, read it too), is under way: steps 1 (layer tree), 2 (courses, luxury/functional grades) and 3a
+(treatments) are built, 3b (small free placements) is next. Then Phase 5 (representation levels).
 
 Development happens in Claude Code cloud sessions. The user reviews pull requests rather than running code, and has
 limited bandwidth: keep everything verifiable in the cloud and review evidence small (contact sheets, metric tables).
@@ -16,9 +16,11 @@ limited bandwidth: keep everything verifiable in the cloud and review evidence s
 - Check before every push: `./scripts/check.sh` (ruff lint, ruff format check, pytest; CI runs the same script)
 - Contact sheet of the golden seeds at L2: `uv run arcology sheet specs/default.json -o build/review`
   (writes `contact_sheet.jpg`, `metrics.md`, `metrics.json`, and per-seed plan, library and tile)
-- Close-ups at L0 (entrance, sister-tower cluster at its transfer floor, the central tower's first setback, its
-  crown): `uv run arcology detail specs/default.json -o build/detail` (`detail_sheet.jpg`; about 3 minutes, since
-  each building is ~25,000 placed copies at L0)
+- Close-ups at L0 (entrance, the central tower's base section whole at mid range, sister-tower cluster at its
+  transfer floor, the central tower's first setback, its crown): `uv run arcology detail specs/default.json -o
+  build/detail` (`detail_sheet.jpg`; about 4 minutes, since each building is ~25,000 placed copies at L0)
+- What-if sheet, the treatments one at a time then together, on the central tower's base section at L0:
+  `uv run arcology whatif specs/default.json -o build/whatif` (`whatif_sheet.jpg`, `whatif.md`; about 2 minutes)
 - Sweep sheet, one parameter per row on one seed (default: every style setting):
   `uv run arcology sweep specs/default.json -o build/sweep` (`sweep_sheet.jpg`, `sweep.md`; about 90 s); any
   parameter with `--set style.hierarchy=strong,weak --set secondary_towers.count=0,3,6`
@@ -36,14 +38,14 @@ limited bandwidth: keep everything verifiable in the cloud and review evidence s
 | `spec.py` | Schema v0: dataclasses, strict loading, ranges | No |
 | `seeds.py` | Per-element seeds from ID paths (blake2b) | No |
 | `plan.py` | Resolved plan: `Element`, `Region` (layer trees), `Plan`, arrays and `instances()`, keys, bounds | No |
-| `rules.py` | Shared primitives: sampling, grid snapping, mass elements, outlines (`outline`, notches), LOD sets | No |
+| `rules.py` | Shared primitives: sampling, grid snapping, mass elements, outlines (`outline`, notches), carving, LOD sets | No |
 | `resolve.py` | The grammar's order: podium, central tower, secondary towers, facades, composition | No |
 | `compose.py` | Composition: secondary towers in rings, bridges, transfer bands, crowns, parapets | No |
 | `facade.py` | Facades: layer trees, courses, grades, corners, pilasters and piers, windows, portals, cornices, merlons | No |
 | `metrics.py` | Structural checks (massing, facades, symmetry, dominance, bridges, crowns, clearance), style envelope | No |
 | `build.py` | Box-built recipes; plan → element library (.glb) + placement manifest | Yes |
 | `assemble.py` | Stand-in assembler: manifest → instanced scene (expands arrays) | Yes |
-| `review.py` | Contact (L2), detail (L0), sweep (L2) and batch (L3) sheets; Cycles CPU + Pillow, golden seeds | Yes |
+| `review.py` | Contact (L2), detail (L0), what-if (L0), sweep (L2) and batch (L3) sheets; Cycles CPU + Pillow | Yes |
 | `elevation.py` | Elevation sheet: south elevations of the layer trees, drawn with Pillow from the plan | No |
 
 ## Conventions
@@ -69,6 +71,12 @@ limited bandwidth: keep everything verifiable in the cloud and review evidence s
   in luxury leaves and on seams, never by position alone, and keep functional leaves calm. The plan's reserved
   `program` tag stays for uses (dining, hall). Free placements (a building's tone) are decided in docs/LAYERS.md
   section 5 but not built.
+- **Treatments:** a luxury leaf may become a field, opening, recess, giant order or rich (`facade.ALLOWED`, by
+  course and column), drawn per tower from the tower's seed so twins match, as many as `style.contrast` asks; the
+  central tower's axis always takes one. Openings and recesses cut the core (`cuts` on the core, carved by
+  `rules.mass_boxes` in the builder and the `housed` check alike) and house a space; never cut a mass's top floor,
+  a notch face or an edge column. A treatment fills its leaf between the piers at its edges and takes the piers off
+  the lines inside it. New treatments need a what-if column (`review.WHATIF`).
 - **Repetition:** windows, piers and merlons are array elements; an axis may have a `stride` (pilasters every k
   bay lines). A copy's id comes from the array's `prefix` plus its facade-wide grid position
   (`.../facade.south/bay.007/floor.012`, `.../facade.south/pier.012`), never from how the grid was split into

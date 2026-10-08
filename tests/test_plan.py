@@ -48,11 +48,15 @@ def test_window_ids_and_seeds_are_unique():
     assert len({w.seed for w in windows.values()}) == len(windows)
 
 
+# Without treatments, which take windows out where they fall and set a recess's back.
+CALM = replace(SPEC, style=replace(SPEC.style, contrast=0.0))
+
+
 def test_window_identity_survives_a_different_entrance():
     # A wider entrance re-splits the south facade into different blocks; every window that
     # still exists must keep its id, seed and position.
-    narrow = _windows(resolve(replace(SPEC, facade=replace(SPEC.facade, entrance_bays=3))))
-    wide = _windows(resolve(replace(SPEC, facade=replace(SPEC.facade, entrance_bays=7))))
+    narrow = _windows(resolve(replace(CALM, facade=replace(CALM.facade, entrance_bays=3))))
+    wide = _windows(resolve(replace(CALM, facade=replace(CALM.facade, entrance_bays=7))))
     assert len(wide) < len(narrow)
     for wid, w in wide.items():
         assert (narrow[wid].seed, narrow[wid].translation) == (w.seed, w.translation), wid
@@ -61,13 +65,13 @@ def test_window_identity_survives_a_different_entrance():
 def test_window_identity_survives_a_different_rhythm_and_zones():
     # Pilasters and ornament re-split facades into other blocks and zones (capital floors
     # follow ornament density); every window keeps its id, seed and position.
-    before = _windows(PLAN)
+    before = _windows(resolve(CALM))
     after = _windows(
         resolve(
             replace(
-                SPEC,
-                facade=replace(SPEC.facade, pilaster_every=5),
-                style=replace(SPEC.style, ornament_density=1.0),
+                CALM,
+                facade=replace(CALM.facade, pilaster_every=5),
+                style=replace(CALM.style, ornament_density=1.0),
             )
         )
     )

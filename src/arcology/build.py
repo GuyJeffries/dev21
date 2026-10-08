@@ -18,9 +18,9 @@ from typing import NamedTuple
 
 import bpy
 
-from arcology.facade import MULLION_DEPTH
+from arcology.facade import MULLION_DEPTH, NICHE_SURROUND
 from arcology.plan import LODS, Plan, element_key
-from arcology.rules import outline
+from arcology.rules import carve, mass_boxes, outline
 
 MANIFEST_SCHEMA = "arcology-manifest/0"
 
@@ -29,6 +29,14 @@ MATERIALS = {
     "spandrel": {"base_color": [0.16, 0.12, 0.09], "roughness": 0.55, "metallic": 0.6},
     "glass": {"base_color": [0.05, 0.07, 0.09], "roughness": 0.08, "metallic": 0.0},
     "metal": {"base_color": [0.55, 0.42, 0.22], "roughness": 0.35, "metallic": 1.0},
+    # The lit back wall of a hall behind an opening, seen through the opening's clear glass.
+    "light": {"base_color": [0.95, 0.62, 0.32], "roughness": 0.6, "metallic": 0.0, "emission": 1.2},
+    "clear": {
+        "base_color": [0.9, 0.95, 1.0],
+        "roughness": 0.05,
+        "metallic": 0.0,
+        "transmission": 1.0,
+    },
 }
 
 type Box = tuple[tuple[float, float, float], tuple[float, float, float], str]
@@ -58,6 +66,11 @@ def _material(name: str) -> bpy.types.Material:
         bsdf.inputs["Base Color"].default_value = (*spec["base_color"], 1.0)
         bsdf.inputs["Roughness"].default_value = spec["roughness"]
         bsdf.inputs["Metallic"].default_value = spec["metallic"]
+        if spec.get("transmission"):
+            bsdf.inputs["Transmission Weight"].default_value = spec["transmission"]
+        if spec.get("emission"):
+            bsdf.inputs["Emission Color"].default_value = (*spec["base_color"], 1.0)
+            bsdf.inputs["Emission Strength"].default_value = spec["emission"]
     return mat
 
 
@@ -109,19 +122,17 @@ def mesh_from_parts(name: str, parts: list[Part]) -> bpy.types.Mesh:
 mesh_from_boxes = mesh_from_parts  # boxes are parts too
 
 
-def _mass_box(p: dict) -> list[Box]:
-    w, d = p["width"] / 2, p["depth"] / 2
-    return [((-w, -d, 0), (w, d, p["height"]), "stone")]
+def _carved(boxes: list[Box], p: dict) -> list[Box]:
+    """`boxes` less the `cuts` in `p` ([x0, y0, z0, x1, y1, z1] each), as boxes that tile
+    what is left."""
+    cuts = [((c[0], c[1], c[2]), (c[3], c[4], c[5])) for c in p.get("cuts", ())]
+    return [(lo, hi, m) for lo0, hi0, m in boxes for lo, hi in carve((lo0, hi0), cuts)]
 
 
-def _mass_notched(p: dict) -> list[Box]:
-    """A box with a square notch cut from every corner: a cross of three boxes."""
-    w, d, c, h = p["width"] / 2, p["depth"] / 2, p["notch"], p["height"]
-    return [
-        ((-w + c, -d, 0), (w - c, d, h), "stone"),
-        ((w - c, -d + c, 0), (w, d - c, h), "stone"),
-        ((-w, -d + c, 0), (-w + c, d - c, h), "stone"),
-    ]
+def _mass(p: dict) -> list[Box]:
+    """A mass, or a core less the spaces carved behind openings and recesses; with `notch`, a
+    cross of three boxes."""
+    return [(lo, hi, "stone") for lo, hi in mass_boxes(p)]
 
 
 def _pier_inner(p: dict) -> list[Box]:
@@ -185,18 +196,39 @@ def _pier_corner(p: dict) -> list[Box]:
     return boxes
 
 
-def _window_deco_tall(p: dict) -> list[Box]:
+def _chevrons(p: dict, cw: float, sill: float, face: float, band: float) -> list[Part]:
+    """Nested bronze chevrons standing `relief` proud of a panel whose front is at `face`."""
+    parts: list[Part] = []
+    rise, xw = p["rise"], 0.8 * cw
+    for k in range(p["chevrons"]):
+        z = 0.2 * sill + k * 1.6 * band
+        points = (
+            (-xw, z),
+            (0, z + rise),
+            (xw, z),
+            (xw, z + band),
+            (0, z + rise + band),
+            (-xw, z + band),
+        )
+        parts.append(Prism(points, face - p["relief"], face, "metal"))
+    return parts
+
+
+def _window_deco_tall(p: dict) -> list[Part]:
     """A glazed channel between two piers: dark spandrel below, glass above, bronze mullions
     and a transom bar between them. Nothing stone stands between the piers, so stacked
     windows form continuous vertical channels and the piers read as unbroken ribs.
 
     With `band` (window.deco_band, a horizontal axis) the spandrel is a stone band standing
-    forward to `band`, which banded piers carry on across the bay lines.
+    forward to `band`, which banded piers carry on across the bay lines. A rich window
+    (`chevrons`) carries bronze chevrons on its spandrel.
     """
     cw, h, recess, sill = p["width"] / 2, p["height"], p["recess"], p["sill"]
     back = p["front"] + recess
     bar = MULLION_DEPTH
     spandrel = (p["band"], "stone") if "band" in p else (p["front"] + recess / 2, "spandrel")
+    if p.get("chevrons") and "band" not in p:  # rich: a bronze spandrel under its chevrons
+        spandrel = (spandrel[0], "metal")
     boxes = [
         ((-cw, spandrel[0], 0), (cw, back + p["glass"], sill), spandrel[1]),
         ((-cw, back, sill), (cw, back + p["glass"], h), "glass"),
@@ -205,6 +237,8 @@ def _window_deco_tall(p: dict) -> list[Box]:
     for i in range(1, p["mullions"] + 1):
         x = -cw + 2 * cw * i / (p["mullions"] + 1)
         boxes.append(((x - 0.04, back - bar, sill + 0.08), (x + 0.04, back, h), "metal"))
+    if p.get("chevrons"):
+        boxes += _chevrons(p, cw, sill, spandrel[0], p["chevron_band"])
     return boxes
 
 
@@ -231,18 +265,7 @@ def _window_deco_capital(p: dict) -> list[Part]:
         x = -cw + 2 * cw * i / (p["mullions"] + 1)
         parts.append(((x - 0.04, back - bar, sill + 0.08), (x + 0.04, back, top), "metal"))
     if p.get("chevrons"):
-        t, rise, xw = p["band"], p["rise"], 0.8 * cw
-        for k in range(p["chevrons"]):
-            z = 0.2 * sill + k * 1.6 * t
-            points = (
-                (-xw, z),
-                (0, z + rise),
-                (xw, z),
-                (xw, z + t),
-                (0, z + rise + t),
-                (-xw, z + t),
-            )
-            parts.append(Prism(points, panel - p["relief"], panel, "metal"))
+        parts += _chevrons(p, cw, sill, panel, p["band"])
     return parts
 
 
@@ -402,10 +425,130 @@ def _bridge_gallery(p: dict) -> list[Box]:
     return boxes
 
 
+# Treatments (docs/LAYERS.md section 4): each fills a leaf between the piers at its edges.
+
+JOINT, JOINT_DEPTH = 0.06, 0.05  # a field's coursing joints: half height, depth
+
+
+def _field_stone(p: dict) -> list[Box]:
+    """Plain stone coursed every floor by a shallow joint; with `niche` ([width, height,
+    bottom, depth]) a niche for a figure or relief, framed by a surround stepping out twice."""
+    w, h, f, dd, fh = p["width"] / 2, p["height"], p["front"], p["depth"], p["floor_height"]
+    boxes: list[Box] = []
+    z = 0.0
+    for k in range(1, round(h / fh)):
+        boxes.append(((-w, f, z), (w, dd, k * fh - JOINT), "stone"))
+        boxes.append(((-w, f + JOINT_DEPTH, k * fh - JOINT), (w, dd, k * fh + JOINT), "stone"))
+        z = k * fh + JOINT
+    boxes.append(((-w, f, z), (w, dd, h), "stone"))
+    if "niche" not in p:
+        return boxes
+    nw, nh, z0, nd = p["niche"]
+    hw = nw / 2
+    boxes = _carved(boxes, {"cuts": [[-hw, f - 1.0, z0, hw, f + nd, z0 + nh]]})
+    s = NICHE_SURROUND
+    margin = min(0.6, z0, h - z0 - nh, w - hw)
+    for step in (1, 2):  # the nearer step is the wider
+        m, y0 = margin * (3 - step) / 2, f - step * s
+        boxes += [
+            ((-hw - m, y0, z0 - m), (-hw, y0 + s, z0 + nh + m), "stone"),
+            ((hw, y0, z0 - m), (hw + m, y0 + s, z0 + nh + m), "stone"),
+            ((-hw, y0, z0 - m), (hw, y0 + s, z0), "stone"),
+            ((-hw, y0, z0 + nh), (hw, y0 + s, z0 + nh + m), "stone"),
+        ]
+    return boxes
+
+
+def _opening_deco(p: dict) -> list[Box]:
+    """One glazed opening: stepped frames receding into the wall, each a sill, two jambs
+    and a head; glass at the back; a coarse grid of bronze mullions and transoms in front
+    of it; a bronze band on the outer sill."""
+    w, h, k, fw = p["width"] / 2, p["height"], p["frames"], p["frame_width"]
+    fs, ss, g = p["frame_step"], p["sill_step"], p["glass"]
+    boxes: list[Box] = []
+    for j in range(k):
+        o, i, y = w - j * fw, w - (j + 1) * fw, j * fs
+        bottom, top = j * ss, h - j * fw
+        boxes += [
+            ((-o, y, bottom), (-i, g, top), "stone"),
+            ((i, y, bottom), (o, g, top), "stone"),
+            ((-i, y, h - (j + 1) * fw), (i, g, top), "stone"),
+            ((-i, y, bottom), (i, g, (j + 1) * ss), "stone"),
+        ]
+    gi, gb, gt, pane = w - k * fw, k * ss, h - k * fw, g - 0.05
+    boxes.append(((-gi, pane, gb), (gi, g, gt), "clear"))
+    bar = 0.1
+    xs = [-gi + 2 * gi * m / (p["mullions"] + 1) for m in range(1, p["mullions"] + 1)]
+    boxes += [((x - bar, pane - 0.15, gb), (x + bar, pane, gt), "metal") for x in xs]
+    edges = [-gi, *(v for x in xs for v in (x - bar, x + bar)), gi]
+    for t in range(1, p["transoms"] + 1):
+        z = gb + (gt - gb) * t / (p["transoms"] + 1)
+        boxes += [
+            ((a, pane - 0.1, z - bar), (b, pane, z + bar), "metal")
+            for a, b in zip(edges[::2], edges[1::2], strict=True)
+        ]
+    boxes.append(((-(w - fw), -p["band"], 0.1), (w - fw, 0.0, ss - 0.1), "metal"))
+    return boxes
+
+
+def _space_hall(p: dict) -> list[Box]:
+    """The hall behind an opening: a floor, a slab every few floors, and a lit back wall."""
+    w, h, front, depth = p["width"] / 2, p["height"], p["front"], p["depth"]
+    wall = depth - 0.3
+    boxes: list[Box] = [
+        ((-w, wall, 0), (w, depth, h), "light"),
+        ((-w, front, 0), (w, wall, 0.3), "stone"),
+    ]
+    step = p["every"] * p["floor_height"]
+    z = step
+    while z < h - 1e-6:
+        boxes.append(((-w, front, z - 0.4), (w, wall, z), "stone"))
+        z += step
+    return boxes
+
+
+def _recess_slab(p: dict) -> list[Box]:
+    """A recess's floors: a slab per floor, open to the front, with a balustrade on its edge."""
+    w, d, fh, slab = p["width"] / 2, p["depth"], p["floor_height"], p["slab"]
+    boxes: list[Box] = []
+    for j in range(p["floors"]):
+        z = j * fh
+        boxes.append(((-w, 0, z), (w, d, z + slab), "stone"))
+        boxes.append(((-w, 0, z + slab), (w, p["rail"], z + slab + p["rail_height"]), "stone"))
+    return boxes
+
+
+SPANDREL = 1.0  # spandrel height in a giant order's glazing
+
+
+def _order_giant(p: dict) -> list[Box]:
+    """Giant piers standing `proud` of the wall, each with a narrower face stepping forward
+    again, rising through the band; between them deep glazing at the back of the wall, on a
+    bay grid of bronze mullions, transoms at every floor and dark spandrels."""
+    w, h, dd, fh = p["width"] / 2, p["height"], p["depth"], p["floor_height"]
+    gw, back, proud = p["pier_width"] / 2, p["depth"] - p["glass"], p["proud"]
+    boxes: list[Box] = []
+    for x in p["piers"]:
+        boxes.append(((x - gw, -proud / 2, 0), (x + gw, dd, h), "stone"))
+        boxes.append(((x - gw / 2, -proud, 0), (x + gw / 2, -proud / 2, h), "stone"))
+    walls = [-w, *(v for x in p["piers"] for v in (x - gw, x + gw)), w]
+    for x0, x1 in zip(walls[::2], walls[1::2], strict=True):
+        boxes.append(((x0, back, 0), (x1, dd, h), "glass"))
+        mullions = [m for m in p["mullions"] if x0 < m < x1]
+        boxes += [((m - 0.05, back - 0.12, 0), (m + 0.05, back, h), "metal") for m in mullions]
+        edges = [x0, *(v for m in mullions for v in (m - 0.05, m + 0.05)), x1]
+        for f in range(round(h / fh)):
+            for a, b in zip(edges[::2], edges[1::2], strict=True):
+                boxes.append(((a, back - 0.04, f * fh), (b, back, f * fh + SPANDREL), "spandrel"))
+                if f:
+                    boxes.append(((a, back - 0.08, f * fh - 0.06), (b, back, f * fh), "metal"))
+    return boxes
+
+
 # recipe name -> parts(params), in the element's frame (see plan.py)
 RECIPES: dict[str, Callable[[dict], list[Part]]] = {
-    "mass.box": _mass_box,
-    "mass.notched": _mass_notched,
+    "mass.box": _mass,
+    "mass.notched": _mass,
     "pier.inner": _pier_inner,
     "pier.strip": _pier_strip,
     "pier.fluted": _pier_fluted,
@@ -424,6 +567,11 @@ RECIPES: dict[str, Callable[[dict], list[Part]]] = {
     "parapet.ring": _ring,
     "cornice.ring": _ring,
     "merlon.stepped": _merlon_stepped,
+    "field.stone": _field_stone,
+    "opening.deco": _opening_deco,
+    "space.hall": _space_hall,
+    "recess.slab": _recess_slab,
+    "order.giant": _order_giant,
 }
 
 

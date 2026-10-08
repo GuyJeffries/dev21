@@ -76,6 +76,52 @@ def rnd(x: float) -> float:
     return round(x, 4)
 
 
+type Box = tuple[tuple[float, float, float], tuple[float, float, float]]
+
+
+def carve(box: Box, cuts) -> list[Box]:
+    """What is left of `box` once every cut box is taken out, as boxes that tile it without
+    overlapping: each cut slices away the parts of each piece outside it, below and above
+    first, then front and back, then the sides, and drops what lies inside."""
+    pieces = [box]
+    for clo, chi in cuts:
+        out = []
+        for lo, hi in pieces:
+            if any(min(hi[i], chi[i]) - max(lo[i], clo[i]) <= 1e-9 for i in range(3)):
+                out.append((lo, hi))
+                continue
+            lo, hi = list(lo), list(hi)
+            for axis in (2, 1, 0):
+                if lo[axis] < clo[axis]:
+                    out.append(
+                        (tuple(lo), tuple(clo[axis] if i == axis else hi[i] for i in range(3)))
+                    )
+                    lo[axis] = clo[axis]
+                if hi[axis] > chi[axis]:
+                    out.append(
+                        (tuple(chi[axis] if i == axis else lo[i] for i in range(3)), tuple(hi))
+                    )
+                    hi[axis] = chi[axis]
+        pieces = out
+    return pieces
+
+
+def mass_boxes(p: dict) -> list[Box]:
+    """A mass or core's solid as boxes in its own frame (origin at its base centre): a box, or
+    with `notch` a cross of three, less any `cuts` ([x0, y0, z0, x1, y1, z1] each)."""
+    w, d, h, c = p["width"] / 2, p["depth"] / 2, p["height"], p.get("notch", 0.0)
+    if c:
+        boxes = [
+            ((-w + c, -d, 0.0), (w - c, d, h)),
+            ((w - c, -d + c, 0.0), (w, d - c, h)),
+            ((-w, -d + c, 0.0), (-w + c, d - c, h)),
+        ]
+    else:
+        boxes = [((-w, -d, 0.0), (w, d, h))]
+    cuts = [((c[0], c[1], c[2]), (c[3], c[4], c[5])) for c in p.get("cuts", ())]
+    return [piece for box in boxes for piece in carve(box, cuts)]
+
+
 def box_extent(w, d, h):
     return ((rnd(-w / 2), rnd(-d / 2), 0.0), (rnd(w / 2), rnd(d / 2), rnd(h)))
 

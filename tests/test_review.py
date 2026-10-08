@@ -6,12 +6,14 @@ from PIL import Image, ImageStat
 from arcology.plan import element_bounds, plan_bounds
 from arcology.resolve import resolve
 from arcology.review import (
+    WHATIF,
     batch_sheet,
     contact_sheet,
     detail_cameras,
     detail_sheet,
     shared_camera,
     sweep_sheet,
+    whatif_sheet,
 )
 
 
@@ -63,10 +65,10 @@ def test_contact_sheet_renders_tiles_and_metrics(spec, tmp_path):
     assert [line.split("|")[1].strip() for line in table[4:]] == ["4", "5"]
 
 
-def test_detail_sheet_renders_four_close_ups_per_seed(spec, tmp_path):
+def test_detail_sheet_renders_five_close_ups_per_seed(spec, tmp_path):
     detail_sheet(spec, [6], tmp_path, tile=(96, 64), samples=1)
-    assert Image.open(tmp_path / "detail_sheet.jpg").size == (384, 64 + 34)
-    for name in ("entrance", "cluster", "setback", "crown"):
+    assert Image.open(tmp_path / "detail_sheet.jpg").size == (480, 64 + 34)
+    for name in ("entrance", "face", "cluster", "setback", "crown"):
         tile = Image.open(tmp_path / f"seed-6/{name}.png").convert("L")
         assert ImageStat.Stat(tile).stddev[0] > 5, name
 
@@ -94,3 +96,16 @@ def test_batch_sheet_summarises_the_style_envelope(spec, tmp_path):
     summary = (tmp_path / "batch.md").read_text()
     assert "Every seed passes every check" in summary
     assert "| slenderness |" in summary and "| 2–8 |" in summary
+
+
+def test_whatif_sheet_renders_each_variant_of_the_base_section(spec, tmp_path):
+    variants = [WHATIF[0], WHATIF[-2]]  # none, and all at contrast 1
+    rows = whatif_sheet(spec, [4], tmp_path, tile=(48, 48), samples=1, variants=variants)
+    assert [r["variant"] for r in rows] == ["none", "all, contrast 1"]
+    assert Image.open(tmp_path / "whatif_sheet.jpg").size == (96, 48 + 17)
+    none, every = rows
+    assert none["layers"]["exceptions"]["building"] == 0
+    assert every["layers"]["exceptions"]["building"] > 0
+    assert "| 4 | all, contrast 1 |" in (tmp_path / "whatif.md").read_text()
+    tile = Image.open(tmp_path / "seed-4/variant-1/tile.png").convert("L")
+    assert ImageStat.Stat(tile).stddev[0] > 5

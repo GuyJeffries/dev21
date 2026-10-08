@@ -162,6 +162,9 @@ def resolve(spec: Spec) -> Plan:
             for m in (t.anchor, *t.sections):
                 seams.setdefault(m.id, []).append(("bridge", landing(spec, t)))
     anchor = central.sections[0].floor if datum is None else datum
+    # Treatments are drawn per tower (twins share its seed) and once for the whole podium.
+    decide = {m.id: path_seed(spec.seed, f"{ROOT}/podium") for m in podium}
+    decide |= {s.id: t.seed for t in (central, *towers) for s in t.sections}
     tops = {t.sections[-1].id for t in (central, *towers)}
     masses = [*podium, *central.sections, *(s for t in towers for s in t.sections)]
     elements: list[Element] = []
@@ -177,6 +180,7 @@ def resolve(spec: Spec) -> Plan:
             foot=m is not podium[0],
             seams=seams.get(m.id, ()),
             anchor=anchor,
+            seed=decide[m.id],
         )
         elements += dressed
         regions += tree

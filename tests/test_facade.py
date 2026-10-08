@@ -64,16 +64,31 @@ def test_pilasters_stand_full_depth_and_minor_piers_stand_back():
     assert all("front" not in e.params for e in plain.elements if e.kind == "pier")
 
 
-def test_every_bay_line_has_exactly_one_pier():
-    for face in {(e.tags["mass"], e.tags["facade"]) for e in _of(PLAN, "window")}:
-        lines = [
-            c.tags["pier"]
-            for e in PLAN.elements
-            if e.kind == "pier" and (e.tags["mass"], e.tags.get("facade")) == face
-            for c in instances(PLAN, e)
-        ]
-        assert sorted(lines) == list(range(1, max(lines, default=0) + 1)), face
-        assert len(set(lines)) == len(lines), face
+@pytest.mark.parametrize("plan", [PLAN, resolve(replace(SPEC, seed=37))], ids=["default", "37"])
+def test_every_bay_line_has_a_pier_on_every_floor_but_where_a_treatment_spans_it(plan):
+    fh = plan.floor_height
+    spans = defaultdict(list)  # face -> leaves that take the piers on their lines
+    for r in plan.regions:
+        if r.treatment and r.treatment not in ("cells", "rich"):
+            spans[r.mass, r.facade].append(r)
+    for face in {(r.mass, r.facade) for r in plan.regions if r.layer == "face"}:
+        root = next(r for r in plan.regions if r.layer == "face" and (r.mass, r.facade) == face)
+        covered, ids = defaultdict(list), []
+        for e in plan.elements:
+            if e.kind != "pier" or (e.tags["mass"], e.tags.get("facade")) != face:
+                continue
+            for c in instances(plan, e):
+                ids.append(c.id)
+                if e.tags["order"] != "back":  # a recess's back wall
+                    covered[c.tags["pier"]] += range(
+                        c.floor, c.floor + round(e.params["height"] / fh)
+                    )
+        assert len(set(ids)) == len(ids), face
+        for line in range(1, root.bays[1]):
+            blocked = {
+                f for r in spans[face] if r.bays[0] < line < r.bays[1] for f in range(*r.floors)
+            }
+            assert sorted(covered[line]) == sorted(set(range(*root.floors)) - blocked), (face, line)
 
 
 def test_zones_base_on_the_ground_tier_capital_at_every_top():

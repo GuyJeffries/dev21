@@ -10,7 +10,8 @@
     "ornament_density": 0.65,
     "setback_strength": "high",
     "repetition": "regular",
-    "termination": "spire"
+    "termination": "spire",
+    "contrast": 0.5
   },
   "primary_mass": {
     "form": "stepped_podium",
@@ -49,7 +50,8 @@
     "entrance_bays": [3, 5],
     "entrance_floors": [2, 3],
     "band_run": [8, 15],
-    "lobby_floors": [1, 2]
+    "lobby_floors": [1, 2],
+    "treatments": ["field", "opening", "recess", "giant", "rich"]
   },
   "program": {
     "luxury": [0.15, 0.35]

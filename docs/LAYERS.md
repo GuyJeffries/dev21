@@ -1,7 +1,7 @@
 # Scale layers and contrast: design note
 
-**Status:** steps 1 (the tree) and 2 (courses and the programme split) built (2026-10-07); step 3 (treatments)
-next. This step comes after Phase 4 and before Phase 5 (representation levels), which it sets up.
+**Status:** steps 1 (the tree), 2 (courses and the programme split) and 3a (the treatments) built (2026-10-08); 3b
+(small free placements) next. This step comes after Phase 4 and before Phase 5 (representation levels), which it sets up.
 
 ## 1. The problem
 
@@ -105,18 +105,18 @@ tower.central/section.0/facade.south: 26 bays, floors 20-62, vertical axis (colu
 
 ### Treatments
 
-A node terminates with one of a small vocabulary; the first two exist today:
+A node terminates with one of a small vocabulary; all but projection are built (step 3a):
 
 | Treatment | Terminates at | What it is | Contains |
 |---|---|---|---|
-| Cells | Cell | The window grid with piers, by zone (base, shaft, capital) | Windows |
-| Portal | Band or panel | The entrance and doors, as now, in a stepped frame | Doors |
-| Field | Band or panel | Plain stone, with joints and optionally a relief or figure slot | Optional asset slot |
-| Opening | Band or panel | One glazed opening in a stepped, chamfered frame, with its own coarse mullion grid and an ornamented sill band | A space behind |
-| Recess | Band or panel | The envelope pushed back by several metres: a loggia or terrace with a floor slab and balustrade | A back wall (which subdivides again) and a space |
-| Projection | Band or panel | A volume standing forward: a balcony slab, a platform, an oriel | Optional space |
-| Giant order | Band | Piers spanning the whole band every few bays, deep glazing between | Cells, set deep |
-| Rich | Panel | Cells with ornament raised a level (more chevrons, fluting, a relief band) | Windows |
+| Cells | Cell | The window grid with piers, by zone (base, shaft, lobby, capital) | Windows |
+| Portal | Band or panel | The entrance and doors, in a stepped frame | Doors |
+| Field | Band or panel | Plain stone coursed every floor; on the axis, a niche in a stepped surround | An empty figure or relief slot (`asset_slot`) |
+| Opening | Band or panel | One glazed opening in frames stepping back into the wall, with its own coarse grid of mullions and transoms (ignoring the floors) over a bronze sill band; clear glass | A hall carved 12 m into the core: a slab every three floors and a warm, lit back wall |
+| Recess | Band or panel, at most three floors | The envelope pushed back one bay: a loggia with a slab and balustrade on every floor, the edge piers left standing as columns | A back wall of cells and piers, and a terrace (a space with nothing to draw) |
+| Projection | Band or panel | A volume standing forward: a balcony slab, a platform, an oriel | Optional space (not built) |
+| Giant order | Band, three bays or more | Wide piers every two or three bays, standing 0.6 m proud in two steps, with deep glazing between on a bay grid of mullions, transoms and spandrels | |
+| Rich | Shaft leaves | Windows with taller bronze spandrels carrying chevrons | Windows |
 
 Self-similar recipes: the stepped frame, opening grid, pier and chevron are parametrised by size, so the same recipe
 serves a door, a ten-storey opening and a 200 m frame on the pyramid face. Containers recurse: a recess's back wall
@@ -124,10 +124,13 @@ and a giant order's infill are nodes that subdivide again.
 
 ### Interior spaces
 
-An opening or recess creates a `space` element behind it: a volume with a `program` tag (hall, atrium, terrace,
-dining room), the reserved tag from the plan. For now it is a stand-in shell (floor slabs every few floors, a back
-wall, warm light) so a big opening never reads as a hole; real interiors come later. A recess needs the core to step
-back behind it, so the core becomes a cut outline rather than one box.
+An opening or recess creates a `space` element behind it: a volume with a `program` tag (hall, terrace; later
+atrium, dining room), the reserved tag from the plan. A hall is a stand-in shell (floor slabs every few floors, a
+lit back wall seen through the opening's clear glass) so a big opening never reads as a hole; a terrace is the open
+air of a recess, with nothing to draw. Real interiors come later. The core is carved behind both: it carries the
+cut boxes (`cuts`), and the builder and the `housed` check carve it the same way (`rules.mass_boxes`). A cut never
+reaches deeper than a third of the core, nor further than its leaf stands from either end of its face, so cuts from
+two faces never meet; it never takes a mass's top floor, which holds the cornice.
 
 ## 5. Where the exceptions go
 
@@ -160,6 +163,17 @@ same logic on every building; **free placement** sets a building's tone and is o
   calm cells, the ground the contrast reads against, plain on purpose. The seed chooses the treatment, composition
   the place.
 - **A `contrast` style setting** (0 to 1) sets how many luxury leaves take exceptions and how coarse they go.
+- **Treatments by place (built, step 3a).** Each kind of luxury place, a course and a column, may become: runs on
+  the axis an opening, field or rich; runs on a flank a giant order or rich; seams on the axis a recess or opening,
+  on a flank a recess or rich; capitals a field; the base an opening or field on the axis and a giant order on the
+  flanks; full-width bands (horizontal faces) a giant order, or a field on the shorter bands (a whole run of plain stone
+  across a face read as a blank wall). Each kind on a tower takes one with
+  probability `contrast` scaled by standing, drawn from the tower's seed (shared by mirror twins), so all its
+  luxury lobbies match; on the central tower the axis always takes one above contrast 0, so every building shows
+  its spine. A pick that doesn't fit a leaf falls back along its list. `facade.treatments` limits the vocabulary.
+- **The axis column** is the central pilaster group, widened to the next pilaster lines while it is a single bay or
+  doesn't hold its face's portal; a portal splits only its own band, so a door no longer splits the axis full
+  height and an opening on the axis is never a one-bay slot.
 
 ### Free placement: a building's tone
 
@@ -226,11 +240,15 @@ The current L2 window channels are a crude version of this.
 - **Programmed:** every leaf graded, every portal luxury, the building's luxury share between 10% and 50%, no
   standing more luxurious than the one above it (within 0.03, as leaves come whole), and the grading mirror
   symmetric on bilateral styles. Built: `programmed`.
-- **Contrast:** at least two layers above the cell are expressed in each building, and exceptions take between
-  roughly 5% and 35% of the facade area (bounds tuned by eye): neither uniform nor noise.
-- **Composed:** exceptions only in their allowed zones, and the axis is each main face's richest zone.
-- **Housed:** every opening and recess has a space behind it.
-- **Symmetric and clear:** the existing checks, with projections added to clearance.
+- **Contrasted:** treatments take at most 40% of the facade area, so they never become the texture. Built:
+  `contrasted`. (The lower bound is the spine below: a building with contrast above 0 always has its axis.)
+- **Composed:** treatments only in luxury leaves; cuts only in axis or flank columns of main faces, below the top
+  floor; figure and relief slots only on the axis; the central tower's axis expressed whenever the building uses a
+  treatment the axis may take. Built: `composed`.
+- **Housed:** every opening and recess has one space behind it, reaching into the core, and no part of the carved
+  core left inside it. Built: `housed`.
+- **Symmetric:** the existing check, with each core's cuts mirrored. Clearance is unchanged: giant piers stand
+  0.6 m proud, far inside any gap between towers.
 
 ## 9. Review evidence
 
@@ -238,9 +256,13 @@ The current L2 window channels are a crude version of this.
   the plan, leaves coloured by role (shaft, lobby, base, capital, portal), strong where luxury and pale where
   functional, and outlined by layer; the caption gives the luxury share and each role's. Cheap, deterministic and
   readable at a glance: it shows the contrast structure without judging rendered detail.
-- **What-if sheet:** the same seeds with each treatment switched on alone, then combined, and the `contrast` setting
-  swept; rendered at L2.
-- **Mid-range view:** a new detail camera on one whole section face (150 to 300 m wide), where bands and panels read.
+- **What-if sheet (built):** `arcology whatif`: seeds 11 and 37, the central tower's base section seen whole from
+  the south at L0 (built alone, so it takes about two minutes): no treatments, each treatment alone at contrast 1,
+  all at contrast 0.5 and 1, and a horizontal axis at contrast 1, where giant orders cross the full-width bands.
+  `whatif.md` gives each variant's treatment shares and checks.
+- **Mid-range view (built):** a detail-sheet camera on the central tower's base section, whole (about 100 to 150 m
+  wide here; 150 to 300 m at target scale), where bands, panels and treatments read.
+- **Contrast sweep (built):** a `style.contrast` row (0, 0.5, 1) on the sweep sheet.
 
 ## 10. Steps
 
@@ -273,6 +295,24 @@ Each step is pushed with its sheets:
    luxury leaves and on seams; the stepped frame and opening grid made self-similar; the `contrast` setting; empty
    figure slots (`asset_slot`) on the axis; small-layer free placements with the tone rule; then the checks, the
    what-if sheet and the mid-range view. You pick what works.
+
+   *3a built.* Field, opening, recess, giant order and rich, chosen per kind of luxury place on each tower
+   (section 5), with the core carved behind openings and recesses and a space in each; empty figure and relief
+   slots in axis fields; `style.contrast` (default 0.5) and `facade.treatments`; the checks `housed`,
+   `composed` and `contrasted`; the what-if sheet, the mid-range close-up and a contrast sweep row. Over 100
+   seeds treatments take 7% to 27% of the facade (median 14%), 16% to 41% on the central tower, and every seed
+   passes every check; over 30 seeds each style setting does too, and contrast 1 stays within 12% to 35%. What
+   the sheets show: every central tower now carries a spine on its axis (lit openings, a stone field with
+   niches, or bronze rich windows), recessed loggias at the transfer floor and lobbies, and stone capitals under
+   the setbacks, visible at contact-sheet distance; giant orders read as colonnades across horizontal faces and
+   at the base. Two things the pictures changed: a one-bay axis made openings into slots, so the axis column is
+   now widened to the next pilasters; rich windows showed nothing until their spandrels became taller bronze
+   panels. The default building has 2,438 elements (1,124 before), the plan 5.4 MB; the test suite takes about
+   nine minutes (four and a half before).
+   Not yet: the self-similar frame (the opening's frame and the entrance's are still separate recipes) and
+   projections.
+
+   *3b next:* small-layer free placements with the tone rule (section 5).
 4. **Then:** tower shafts (silhouette), the pyramid (smooth and stepped), the move to target scale, large-layer
    free placements (they need shafts to carry and a pyramid to distort), and Phase 5.
 

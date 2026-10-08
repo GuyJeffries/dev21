@@ -31,6 +31,11 @@ FILLS = {
     "luxury.capital": (190, 150, 30),
     "functional.capital": (240, 230, 190),
     "portal": (180, 40, 40),
+    "field": (150, 135, 110),
+    "opening": (240, 170, 60),
+    "recess": (45, 45, 55),
+    "giant": (130, 80, 160),
+    "rich": (215, 110, 60),
 }
 UNKNOWN = (255, 0, 255)  # a treatment without a colour shows up loudly
 MASS, CROWN, SPIRE, BRIDGE = (227, 222, 211), (214, 207, 192), (176, 141, 87), (120, 120, 128)
@@ -160,12 +165,10 @@ def _frame(plans: list[Plan]):
 
 def _caption(plan: Plan) -> str:
     stats = layers(plan)
-    parts = [
-        f"{k.removeprefix('cells.')} {v:.0%}"
-        for k, v in stats["area"].items()
-        if v >= 0.005 and k != "portal"
-    ]
-    return f"seed {plan.seed}   luxury {stats['luxury']['building']:.0%}   " + "  ".join(parts)
+    return (
+        f"seed {plan.seed}   luxury {stats['luxury']['building']:.0%}   "
+        f"exceptions {stats['exceptions']['building']:.0%}"
+    )
 
 
 def _legend(width: int, font) -> Image.Image:

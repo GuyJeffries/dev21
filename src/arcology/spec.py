@@ -94,6 +94,9 @@ class Style:
     # Regular: one facade for the building. Varied: each tower group draws its own.
     repetition: str = _f("regular", _choice("regular", "varied"))
     termination: str = _f("stepped", _choice("stepped", "spire", "flat"))  # the central tower
+    # How many luxury places take an exception (a treatment, docs/LAYERS.md), and how coarse:
+    # 0 none, 1 every kind of place, favouring cuts (openings, recesses) over ornament.
+    contrast: float = _f(0.5, _number(lo=0, hi=1))
 
 
 @dataclass(frozen=True)
@@ -165,6 +168,12 @@ class Facade:
     # lobbies this many floors tall, on one rhythm anchored at the transfer floor.
     band_run: IntRange = _f((8, 15), _range(integer=True, lo=4, hi=60))
     lobby_floors: IntRange = _f((1, 2), _range(integer=True, lo=1, hi=4))
+    # The treatments luxury places may take (docs/LAYERS.md section 4); fewer for a plainer
+    # family, one at a time for the what-if sheet.
+    treatments: tuple[str, ...] = _f(
+        ("field", "opening", "recess", "giant", "rich"),
+        _list(_choice("field", "opening", "recess", "giant", "rich"), min_len=0),
+    )
 
 
 @dataclass(frozen=True)

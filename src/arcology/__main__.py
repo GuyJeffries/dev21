@@ -7,6 +7,7 @@ arcology detail specs/default.json -o build/detail           close-ups of 3 seed
 arcology sweep specs/default.json -o build/sweep             style parameters, one per row
 arcology batch specs/default.json -o build/batch             100 seeds as silhouettes (L3)
 arcology elevations specs/default.json -o build/elevations   layer trees, flat (no Blender)
+arcology whatif specs/default.json -o build/whatif           treatments one at a time (L0)
 """
 
 import argparse
@@ -107,6 +108,13 @@ def main(argv: list[str] | None = None) -> int:
     v.add_argument("--tile", type=_size, default=(480, 420), help="tile size, e.g. 480x420")
     v.add_argument("--cols", type=int, default=4)
 
+    f = sub.add_parser("whatif", help="spec -> the treatments one at a time, then together (L0)")
+    f.add_argument("spec", type=Path)
+    f.add_argument("--seeds", type=int, nargs="+", help="default: golden seeds 11 and 37")
+    f.add_argument("-o", "--out", type=Path, default=Path("build/whatif"))
+    f.add_argument("--tile", type=_size, default=(300, 300), help="tile size, e.g. 300x300")
+    f.add_argument("--samples", type=int, default=16)
+
     args = parser.parse_args(argv)
     try:
         if args.command == "resolve":
@@ -142,11 +150,26 @@ def main(argv: list[str] | None = None) -> int:
         from arcology.review import (  # imports Blender
             STYLE_SWEEPS,
             SWEEP_SEED,
+            WHATIF_SEEDS,
             batch_sheet,
             contact_sheet,
             detail_sheet,
             sweep_sheet,
+            whatif_sheet,
         )
+
+        if args.command == "whatif":
+            rows = whatif_sheet(
+                load_spec(args.spec),
+                args.seeds or WHATIF_SEEDS,
+                args.out,
+                tile=args.tile,
+                samples=args.samples,
+            )
+            failed = [f"{r['seed']} {r['variant']}" for r in rows if failures(r)]
+            sheet = args.out / "whatif_sheet.jpg"
+            print(f"{sheet}: {len(rows)} tiles, failing: {failed or 'none'}")
+            return 1 if failed else 0
 
         if args.command == "sweep":
             results = sweep_sheet(

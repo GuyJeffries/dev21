@@ -1,8 +1,8 @@
 # Arcology Generator: Project Plan
 
 **Status:** Phases 0 to 4 complete (2026-10-07). Phase 4b (scale layers and contrast, [`LAYERS.md`](LAYERS.md)) under
-way: the layer tree, and courses with the luxury/functional programme split, are built; treatments next. Then
-Phase 5.
+way: the layer tree, courses with the luxury/functional programme split, and the treatments are built; small free
+placements next. Then Phase 5.
 
 Revision 2 (2026-10-07). Revises the original proposal after review. This plan is a starting point, not the full
 scope: the objective right now is to get it working, with "exciting retro-futurist arcologies" as a later pass.
@@ -295,6 +295,7 @@ As built (Phase 4), each setting scales rules rather than choosing assets:
 | `setback_strength` | `high` / `medium` / `low`: the drawn setback inset at full or 60%, and at `low` only every other setback (steps can't shrink below a bay) |
 | `repetition` | `regular`: one facade system. `varied`: each tower group draws its own density, mullions and pilaster rhythm; twins share theirs |
 | `termination` | The central tower's crown: `stepped`, `spire` or `flat` |
+| `contrast` | 0 to 1 (Phase 4b): the share of each tower's kinds of luxury place (a course and a column) that take a treatment, scaled by standing, and how coarse they go (cuts over ornament); the central tower's axis always takes one above 0 |
 
 **Style envelope.** Checks that keep every setting recognisably Art Deco: the central tower's slenderness stays
 within 2-8 and no secondary tower is more slender than it (no needles, no stubs), it tapers to 25-95% of its base
@@ -488,9 +489,11 @@ plan as targets for later design language. Design and steps in [`LAYERS.md`](LAY
 
 **Built so far:** step 1, every face a layer tree whose leaves generate their elements, drawn by the elevation sheet;
 step 2, courses (base, foot, runs, sky lobbies on one building-wide rhythm, bridge seams, capital) and every leaf
-graded luxury or functional by composition (`program.luxury`), so exceptions have places to go. Free placements
-(a building's tone, with large-layer gestures in 15% to 20% of buildings) are decided and come after the
-treatments.
+graded luxury or functional by composition (`program.luxury`), so exceptions have places to go; step 3, the
+treatments in luxury leaves (field with figure slots, opening with a lit hall carved into the core, recess with a
+terrace, giant order, rich), set by `style.contrast` and `facade.treatments`, with the what-if sheet and a
+mid-range close-up. Free placements (a building's tone, with large-layer gestures in 15% to 20% of buildings) are
+decided; the small layers' come next.
 
 **Done when:** the buildings show events at several scales against a calm texture, and still read as Art Deco.
 
@@ -576,6 +579,9 @@ Inside building 3 → looking through window → distinctive building 2 → cut 
 | Tiled | Every facade's layer tree has leaves that tile it exactly once (docs/LAYERS.md) | 100% |
 | Banded | Sky lobbies on the building's band rhythm; no run longer than a lobby could break | Pass |
 | Programmed | Every leaf graded luxury or functional, portals luxury; luxury 10-50% of the facade, ranked by standing, mirrored when bilateral | Pass |
+| Housed | Every opening and recess has one space behind it, carved out of the core | 100% |
+| Composed | Treatments only in luxury leaves; cuts on axis or flank columns of main faces, below the top floor; slots on the axis; the central tower's axis expressed | Pass |
+| Contrasted | Treatments cover at most 40% of the facade | Pass |
 | Ornament hierarchy | No standing carries an ornament system more richly than the standing above it | Pass |
 | Style envelope | Slenderness, taper, podium share, spire share and ornament within the bounds in section 11 | Pass |
 

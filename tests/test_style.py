@@ -27,6 +27,8 @@ SETTINGS = [
     ("termination", "flat"),
     ("ornament_density", 0.0),
     ("ornament_density", 1.0),
+    ("contrast", 0.0),
+    ("contrast", 1.0),
 ]
 
 
@@ -65,7 +67,8 @@ def test_extreme_style_mixes_stay_in_the_envelope():
 def test_weaker_setbacks_taper_less():
     taper = {
         strength: median(
-            measure(p)["style"]["taper"] for p in _plans(_styled(setback_strength=strength))
+            measure(p)["style"]["taper"]
+            for p in _plans(_styled(setback_strength=strength, contrast=0.0))  # massing only
         )
         for strength in ("high", "medium", "low")
     }
@@ -73,8 +76,8 @@ def test_weaker_setbacks_taper_less():
 
 
 def test_weaker_hierarchy_lifts_the_sister_towers_and_their_ornament():
-    def summary(hierarchy):
-        ms = [measure(p) for p in _plans(_styled(hierarchy=hierarchy))]
+    def summary(hierarchy):  # massing and ornament systems: no treatments (rich adds chevrons)
+        ms = [measure(p) for p in _plans(_styled(hierarchy=hierarchy, contrast=0.0))]
         return (
             median(m["dominance"] for m in ms if m["dominance"]),
             median(m["ornament"].get("sister", 0) for m in ms),
@@ -103,7 +106,7 @@ def test_varied_repetition_gives_tower_groups_their_own_facades_twins_alike():
     def facades(plan):
         out: dict[str, set] = {}
         for e in plan.elements:
-            if e.kind == "window" and e.tags["zone"] == "shaft":
+            if e.kind == "window" and e.tags["zone"] == "shaft" and not e.params.get("chevrons"):
                 tower = plan.element(e.tags["mass"]).tags.get("tower", "podium")
                 out.setdefault(tower, set()).add((e.params["sill"], e.params["mullions"]))
         return out

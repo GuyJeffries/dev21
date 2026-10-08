@@ -10,9 +10,9 @@ import json
 import math
 from collections import Counter
 
-from arcology.facade import MIN_RUN
+from arcology.facade import ALLOWED, CUTS, FACING_RANK, MIN_RUN, TREATMENTS
 from arcology.plan import LODS, Element, Plan, Region, element_bounds, element_key, plan_bounds
-from arcology.rules import CENTRAL, HIERARCHY, in_outline, outline, standing
+from arcology.rules import CENTRAL, HIERARCHY, in_outline, mass_boxes, outline, standing
 
 MAX_SPAN = 30.0  # metres a bridge may span
 RANKING = ("central", "sister", "pavilion")  # ornament must not increase down this order
@@ -30,6 +30,8 @@ ORNAMENT_CAP = 2.5  # ornament pieces per facade cell, on any standing
 # nothing is plain; standings may cross by a little, as leaves are graded whole.
 LUXURY_SHARE = (0.1, 0.5)
 LUXURY_SLACK = 0.03
+EXCEPTIONS = TREATMENTS  # leaf treatments that break the calm field of cells
+EXCEPTION_CAP = 0.4  # of the facade area: more and the exceptions become the texture
 
 
 def _whole(x: float, module: float) -> bool:
@@ -51,9 +53,12 @@ def _inside(upper: Element, lower: Element) -> bool:
     return all(_within(x + cx, y + cy, lower) for cx, cy in corners)
 
 
+FILLERS = ("entrance", "door", "field", "opening", "giant")  # fill their leaf's cells whole
+
+
 def _cells(e: Element) -> set[tuple[str, int, int]]:
-    """(facade id, bay, floor) cells a window block or entrance fills."""
-    if e.kind in ("entrance", "door"):
+    """(facade id, bay, floor) cells a window block, portal or treatment fills."""
+    if e.kind in FILLERS:
         prefix = f"{e.tags['mass']}/facade.{e.tags['facade']}"
         (b0, b1), (f0, f1) = e.tags["bays"], e.tags["floors"]
         return {(prefix, b, f) for b in range(b0, b1) for f in range(f0, f1)}
@@ -109,11 +114,23 @@ def _tiled(plan: Plan, masses: list[Element]) -> bool:
     expected = {(fid, b, f) for fid, (bays, floors) in faces.items() for b in bays for f in floors}
     if set(filled) != expected or any(n != 1 for n in filled.values()):
         return False
-    wanted = {"window": "cells", "channel": "cells", "entrance": "portal", "door": "portal"}
+    windows = ("cells", "rich", "recess")  # a recess's back wall is cells
+    wanted = {
+        "window": windows,
+        "channel": windows,
+        "entrance": ("portal",),
+        "door": ("portal",),
+        "field": ("field",),
+        "asset_slot": ("field",),
+        "opening": ("opening",),
+        "giant": ("giant",),
+        "slab": ("recess",),
+        "space": ("opening", "recess"),
+    }
     return all(
         e.tags.get("regions")
         and all(
-            rid in by_id and by_id[rid].treatment == wanted[e.kind] for rid in e.tags["regions"]
+            rid in by_id and by_id[rid].treatment in wanted[e.kind] for rid in e.tags["regions"]
         )
         for e in plan.elements
         if e.kind in wanted
@@ -130,6 +147,7 @@ def layers(plan: Plan) -> dict:
     courses: Counter = Counter()
     by_standing: Counter = Counter()
     lux: Counter = Counter()
+    treated: Counter = Counter()
     for r in plan.regions:
         if r.treatment:
             size = (r.bays[1] - r.bays[0]) * (r.floors[1] - r.floors[0])
@@ -139,14 +157,21 @@ def layers(plan: Plan) -> dict:
             by_standing[standing.get(r.mass, "unknown")] += size
             if r.tags.get("grade") == "luxury":
                 lux[standing.get(r.mass, "unknown")] += size
+            if r.treatment in EXCEPTIONS:
+                treated[standing.get(r.mass, "unknown")] += size
     total = sum(area.values()) or 1
-    luxury = {s: round(lux[s] / by_standing[s], 4) for s in sorted(by_standing)}
+
+    def shares(counter):
+        each = {s: round(counter[s] / by_standing[s], 4) for s in sorted(by_standing)}
+        return {"building": round(sum(counter.values()) / total, 4), **each}
+
     return {
         "regions": dict(sorted(regions.items())),
         "leaves": sum(1 for r in plan.regions if r.treatment),
         "area": {k: round(v / total, 4) for k, v in sorted(area.items())},
         "courses": {k: round(v / total, 4) for k, v in sorted(courses.items())},
-        "luxury": {"building": round(sum(lux.values()) / total, 4), **luxury},
+        "luxury": shares(lux),
+        "exceptions": shares(treated),
     }
 
 
@@ -214,6 +239,76 @@ def _banded(plan: Plan) -> bool:
     return True
 
 
+def _housed(plan: Plan) -> bool:
+    """Every opening and recess has one space behind it (a hall, a terrace) reaching into its
+    mass's core, and the core is carved away there: no part of it left in the space."""
+    cores = {e.tags["mass"]: e for e in plan.elements if e.kind == "core"}
+    solid: dict[str, list] = {}  # each core's parts, in the world
+    spaces: dict[str, list[Element]] = {}
+    for e in plan.elements:
+        if e.kind == "space":
+            for rid in e.tags["regions"]:
+                spaces.setdefault(rid, []).append(e)
+    for r in plan.regions:
+        if r.treatment not in CUTS:
+            continue
+        mine = spaces.get(r.id, [])
+        if len(mine) != 1:
+            return False
+        space, core = element_bounds(mine[0]), cores[r.mass]
+        if _overlap(space, element_bounds(core)) <= 1e-6:  # in front of the building
+            return False
+        if r.mass not in solid:
+            x, y, z = core.translation
+            solid[r.mass] = [
+                ((x + lo[0], y + lo[1], z + lo[2]), (x + hi[0], y + hi[1], z + hi[2]))
+                for lo, hi in mass_boxes(core.params)
+            ]
+        for part in solid[r.mass]:
+            # Thicker than a centimetre in every direction: rounding leaves slivers.
+            if all(
+                min(part[1][i], space[1][i]) - max(part[0][i], space[0][i]) > 0.01 for i in range(3)
+            ):
+                return False
+    return True
+
+
+def _composed(plan: Plan) -> bool:
+    """Exceptions go where composition puts them: only on luxury leaves; cuts only in an axis
+    or flank column of a main face and below the mass's top floor (which holds the cornice);
+    figure and relief slots only on the axis; and unless contrast is 0, the central tower's
+    axis expressed (on a horizontal axis, its full-width bands), if the building uses any
+    treatment the axis may take."""
+    tops = {
+        e.id: e.floor + round(e.params["height"] / plan.floor_height)
+        for e in plan.elements
+        if e.kind == "mass"
+    }
+    by_id = {r.id: r for r in plan.regions}
+    axis = "full" if plan.style.get("dominant_axis") == "horizontal" else "axis"
+    used = {r.treatment for r in plan.regions}
+    spine = not used & {t for place in ALLOWED.values() for t in place[axis]}
+    for r in plan.regions:
+        if r.treatment not in EXCEPTIONS:
+            continue
+        if r.tags.get("grade") != "luxury":
+            return False
+        if r.treatment in CUTS and (
+            r.facade not in FACING_RANK
+            or r.tags["column"] not in ("axis", "flank")
+            or r.floors[1] >= tops[r.mass]
+        ):
+            return False
+        spine |= r.mass.startswith(CENTRAL) and r.tags["column"] == axis
+    slots = all(
+        by_id[rid].tags["column"] == "axis"
+        for e in plan.elements
+        if e.kind == "asset_slot"
+        for rid in e.tags["regions"]
+    )
+    return slots and (spine or plan.style.get("contrast", 0.5) == 0)
+
+
 def _facade_complete(plan: Plan, masses: list[Element]) -> bool:
     """Every bay of every floor of every facade (one per outline edge) is filled exactly once."""
     expected = set()
@@ -224,7 +319,7 @@ def _facade_complete(plan: Plan, masses: list[Element]) -> bool:
             expected |= {(f"{m.id}/facade.{edge.name}", b, f) for b in bays for f in floors}
     filled: Counter = Counter()
     for e in plan.elements:
-        if e.kind in ("window", "entrance", "door"):
+        if e.kind == "window" or e.kind in FILLERS:
             filled.update(_cells(e))
     return set(filled) == expected and all(n == 1 for n in filled.values())
 
@@ -236,7 +331,11 @@ def _symmetric(plan: Plan) -> bool:
         lo, hi = element_bounds(e)
         x0, x1 = (-hi[0], -lo[0]) if mirror else (lo[0], hi[0])
         box = tuple(round(v, 3) for v in (x0, lo[1], lo[2], x1, hi[1], hi[2]))
-        return e.kind, e.recipe, json.dumps(e.params, sort_keys=True), e.count, box
+        params = e.params
+        if mirror and "cuts" in params:  # boxes in the element's own frame mirror too
+            cuts = sorted([-c[3], c[1], c[2], -c[0], c[4], c[5]] for c in params["cuts"])
+            params = {**params, "cuts": cuts}
+        return e.kind, e.recipe, json.dumps(params, sort_keys=True), e.count, box
 
     return Counter(signature(e, False) for e in plan.elements) == Counter(
         signature(e, True) for e in plan.elements
@@ -537,6 +636,9 @@ def measure(plan: Plan) -> dict:
         "tiled": _tiled(plan, masses),
         "banded": _banded(plan),
         "programmed": _programmed(plan, stats),
+        "housed": _housed(plan),
+        "composed": _composed(plan),
+        "contrasted": stats["exceptions"]["building"] <= EXCEPTION_CAP,
         "dressed": _dressed(plan, masses),
         "corniced": _corniced(plan, masses),
         "ornament_hierarchy": _ornament_hierarchy(plan, masses),
